@@ -1,5 +1,5 @@
 
-from .loss import F, grad, hessian, hvp
+from loss import F, grad, hessian, hvp
 import numpy as np
 
 def SGD(X, y, gamma=0.02, BS=1, T=10000):
@@ -59,14 +59,14 @@ def SARAH_Hessian(X, y, gamma=0.2, BS=1, epochs=10, lam=0.0, full_hessian=False)
     data = []
     wn = np.zeros(X.shape[1])
     for ep in range(epochs):
-        v = grad(X,y,wn) + lam * np.linalg.norm(wn)
+        v = grad(X,y,wn)
         nv0 = np.linalg.norm(v)
         wp = wn[:]
         for it in range(10**10):
             i = np.random.choice(X.shape[0], BS)
-            gn = grad(X,y,wn,i)
-            gp = grad(X,y,wp,i)
-            v += gn - gp + lam * np.linalg.norm(wn)
+            gn = grad(X,y,wn,i) + lam * np.linalg.norm(wn)
+            gp = grad(X,y,wp,i) + lam * np.linalg.norm(wp)
+            v += gn - gp
             wp = wn[:]
             # hessian
             iH = None if full_hessian else i
@@ -127,24 +127,24 @@ def OASIS(X, y, gamma=1.0, beta=0.99, alpha=1e-5, BS=1, T=10000,):
     return w, np.array(data)
 
 
-def SARAH_AdaHessian(X, y, gamma=0.2, beta=0.99, alpha=1e-5, BS=1, epochs=10, lam=0.0):
+def SARAH_AdaHessian(X, y, gamma=0.2, beta=0.999, alpha=1e-5, BS=1, epochs=10, lam=0.0):
     data = []
     wn = np.zeros(X.shape[1])
     D = np.ones_like(wn)
     for ep in range(epochs):
-        v = grad(X,y,wn) + lam * np.linalg.norm(wn)
+        v = grad(X,y,wn)
         nv0 = np.linalg.norm(v)
         wp = wn[:]
         for it in range(10**10):
             i = np.random.choice(X.shape[0], BS)
-            gn = grad(X,y,wn,i)
-            gp = grad(X,y,wp,i)
-            v += gn - gp + lam * np.linalg.norm(wn)
+            gn = grad(X,y,wn,i) + lam * np.linalg.norm(wn)
+            gp = grad(X,y,wp,i) + lam * np.linalg.norm(wp)
+            v += gn - gp
             wp = wn[:]
-            # estimate hessian diagonal @TODO: add regularizer's hessian?
+            # estimate hessian diagonal
             z = sample_z(wn.shape)
             #D_est = z * hvp(X,y,wn,z,i) # why is this bad
-            D_est = z * (grad(X,y,wn+z,i) - gn) + lam * np.eyes(wn.shape[0]) # is this correct?
+            D_est = z * (grad(X,y,wn+z,i) - gn) + lam
             D = np.abs(beta * D + (1-beta) * D_est)
             D[D < alpha] = alpha
             # update rule

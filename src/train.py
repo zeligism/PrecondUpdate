@@ -12,9 +12,10 @@ from joblib import Memory
 from sklearn.datasets import load_svmlight_file
 from sklearn.preprocessing import normalize
 
-from .optimizer import *
+from optimizer import *
 
 mem = Memory("./mycache")
+DATASET_DIR = "datasets"
 DATASETS = ("a1a",)
 OPTIMIZERS = ("SGD", "SARAH", "SGD-Hessian", "SARAH-Hessian", "OASIS", "SARAH-AdaHessian")
 BAD_SCALE = lambda d: 10**np.linspace(-3,3,d)
@@ -28,15 +29,15 @@ def parse_args():
     parser.add_argument("--dataset", type=str, choices=DATASETS, default="a1a",
                         help="name of dataset (in 'datasets' directory")
     parser.add_argument("--corrupt", action="store_true", help="corrupt scale of dataset")
-    parser.add_argument("--save_fig", type=str, default=None,
+    parser.add_argument("--savefig", type=str, default=None,
                         help="save plots under this name (default: don't save)")
 
     parser.add_argument("--optimizer", type=str, choices=OPTIMIZERS, default="SARAH-AdaHessian", help="name of optimizer")
-    parser.add_argument("--epochs", type=int, default=1, help="number of iterations/epochs to run")
+    parser.add_argument("-T", "--epochs", type=int, default=5, help="number of iterations/epochs to run")
     parser.add_argument("-BS", "--batch_size", type=int, default=1, help="batch size")
     parser.add_argument("-lr", "--gamma", type=float, default=0.02, help="base learning rate")
     parser.add_argument("--alpha", type=float, default=1e-5, help="min value of diagonal of hessian estimate")
-    parser.add_argument("--beta", type=float, default=0.99, help="adaptive rate of hessian estimate")
+    parser.add_argument("--beta", type=float, default=0.999, help="adaptive rate of hessian estimate")
     parser.add_argument("--lam", type=float, default=0., help="regularization coefficient")
 
     # Parse command line args
@@ -70,6 +71,8 @@ def plot_data(data, fname=None):
         print(f"Saving data to '{fname}'.")
         plt.savefig(fname)
         plt.close()
+    else:
+        plt.show()
 
 
 def corrupt_scale(X, bad_scale=None):
@@ -81,7 +84,8 @@ def corrupt_scale(X, bad_scale=None):
 
 def main(args):
     # check if dataset is downloaded
-    if os.path.isfile(os.path.join("datasets", args.dataset)):
+    args.dataset = os.path.join(DATASET_DIR, args.dataset)
+    if not os.path.isfile(args.dataset):
         raise FileNotFoundError(f"Could not find dataset at 'datasets/{args.dataset}'")
     # Set seed if given
     if args.seed is not None:
@@ -89,7 +93,7 @@ def main(args):
 
     X, y = get_data(args.dataset)
     X = normalize(X, norm='l2', axis=1)
-    print("We have %d samples, each has up to %d features" % *X.shape)
+    print("We have %d samples, each has up to %d features" % (X.shape[0], X.shape[1]))
 
     if args.corrupt:
         print("Corrupting scale of data...")
@@ -105,7 +109,7 @@ def main(args):
     elif args.optimizer == "SARAH-Hessian":
         wopt, data = SARAH_Hessian(X, y, gamma=args.gamma, BS=args.batch_size, lam=args.lam, epochs=args.epochs)
     elif args.optimizer == "OASIS":
-        wopt, data = OASIS(X, y, gamma=args.gamma, beta=args.beta, alpha=args.alpha, lam=args.lam
+        wopt, data = OASIS(X, y, gamma=args.gamma, beta=args.beta, alpha=args.alpha, lam=args.lam,
                            BS=args.batch_size, epochs=args.epochs)
     elif args.optimizer == "SARAH-AdaHessian":
         wopt, data = SARAH_AdaHessian(X, y, gamma=args.gamma, beta=args.beta, alpha=args.alpha, lam=args.lam,

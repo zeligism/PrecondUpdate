@@ -101,7 +101,7 @@ def test_logistic(X,y,w):
     Hvp = hvp(X,y,w,v)
     # torch
     def F_torch(w):
-    return torch.mean(torch.log(1 + torch.exp(-y * (X @ w))))
+        return torch.mean(torch.log(1 + torch.exp(-y * (X @ w))))
     w = torch.Tensor(w).requires_grad_()
     X = torch.Tensor(X.todense()).requires_grad_()
     y = torch.Tensor(y)
