@@ -87,19 +87,21 @@ def main(args):
     args.dataset = os.path.join(DATASET_DIR, args.dataset)
     if not os.path.isfile(args.dataset):
         raise FileNotFoundError(f"Could not find dataset at 'datasets/{args.dataset}'")
+    print(f"Using dataset '{args.dataset}'.")
     # Set seed if given
     if args.seed is not None:
         np.random.seed(args.seed)
+        print(f"Setting random seed to {args.seed}.")
 
     X, y = get_data(args.dataset)
     X = normalize(X, norm='l2', axis=1)
-    print("We have %d samples, each has up to %d features" % (X.shape[0], X.shape[1]))
+    print("We have %d samples, each has up to %d features." % (X.shape[0], X.shape[1]))
 
     if args.corrupt:
         print("Corrupting scale of data...")
         X = corrupt_scale(X)
 
-    print(f"Running {args.optimizer}.")
+    print(f"Running {args.optimizer}...")
     if args.optimizer == "SGD":
         wopt, data = SGD(X, y, gamma=args.gamma, BS=args.batch_size, T=args.epochs)
     elif args.optimizer == "SARAH":
