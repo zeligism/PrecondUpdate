@@ -3,17 +3,25 @@
 #SBATCH --output="%x-%A_%a.out"
 #SBATCH --ntasks=1
 #SBATCH --time=0:10:00
-#SBATCH --mail-type=ALL
-#SBATCH --mail-user="abdulla.almansoori@mbzuai.ac.ae"
+pwd; hostname; date
+source activate opt # assuming conda env 'opt' exists
 
 JA_FILE="${JA_FILE:-"experiment.ja"}"
+LAST_JOB=$(wc -l < ${JA_FILE})
+NRUNS=${NRUNS:-1}
+START=$(( 1 + $NRUNS * (${SLURM_ARRAY_TASK_ID} - 1) ))
+END=$(( $START + $NRUNS - 1 ))
+END=$(( $END <= ${LAST_JOB} ? $END : ${LAST_JOB} ))
 
-source activate opt
-echo "Submitting jobs in job array file: '${JA_FILE}'"
+echo "Running jobs from file: '${JA_FILE}'"
+for (( run=$START; run<=END; run++ )); do
+	# Get the $run'th line of job array script and run it
+	COMMAND="$(sed -n "$run"p "${JA_FILE}")"
+	echo ""
+	echo "========== job $run start"
+	echo "$COMMAND"
+	echo ""
+	eval "$COMMAND"
+	echo "========== job $run end"
+done
 
-# Get the array_id'th line of job array script and run
-COMMAND="$(sed -n "${SLURM_ARRAY_TASK_ID}"p "${JA_FILE}")"
-echo "job ${SLURM_ARRAY_TASK_ID}: ${COMMAND}"
-
-# Run command
-eval "$COMMAND"
