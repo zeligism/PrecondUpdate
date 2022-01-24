@@ -1,0 +1,4 @@
+echo hello
+echo hello again
+python -c "print('Hi from inside python')"
+echo "User name is $(whoami)"

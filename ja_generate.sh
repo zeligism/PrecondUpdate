@@ -1,5 +1,5 @@
 
-ja_file="${1:-"_exp.ja"}"
+ja_file="${1:-"experiment.ja"}"
 mkdir -p "plots"
 rm -f "${ja_file}"
 
