@@ -25,3 +25,8 @@ for (( run=$START; run<=END; run++ )); do
 	echo "========== job $run end"
 done
 
+# hack to make sure all jobs finish before job scripts finishes
+# assuming all jobs are running the same number of commands
+# this is because there seems to be a glitch in he current SLURM system
+# that kills the remaining jobs in the array as soon as a single job finishes
+sleep 30  # sleep for half a minute
