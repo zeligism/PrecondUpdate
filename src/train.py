@@ -1,5 +1,6 @@
 
 import argparse
+import pickle
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -31,8 +32,8 @@ def parse_args():
     parser.add_argument("--corrupt", nargs="*", type=int, default=None, help="If specified, corrupt scale of dataset."\
                         "Takes at most two values: k_min, k_max, specifying the range of powers in scale."\
                         "If one value k is given, the range will be (-k,k) (otherwise, default to (-3,3)).")
-    parser.add_argument("--savefig", type=str, default=None,
-                        help="save plots under this name (default: don't save)")
+    parser.add_argument("--savefig", type=str, default=None, help="save plots under this name (default: don't save)")
+    parser.add_argument("--savedata", type=str, default=None, help="save data log (default: don't save)")
 
     parser.add_argument("--optimizer", type=str, choices=OPTIMIZERS, default="SARAH-OASIS", help="name of optimizer")
     parser.add_argument("-T", "--epochs", type=int, default=5, help="number of iterations/epochs to run")
@@ -52,8 +53,13 @@ def get_data(filePath):
     data = load_svmlight_file(filePath)
     return data[0], data[1]
 
+def corrupt_scale(X, k_min=-3, k_max=3):
+    bad_scale = 10**np.linspace(k_min, k_max, X.shape[1])
+    np.random.shuffle(bad_scale)
+    return X[:].multiply(bad_scale.reshape(1,-1)).tocsr()
 
-def plot_data(data, title="Loss, Gradient norm, and Error", fname=None):
+
+def savefig(data, fname, title="Loss, gradient norm squared, and error"):
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
     fig.set_size_inches(20, 6)
     plt.suptitle(title)
@@ -73,18 +79,13 @@ def plot_data(data, title="Loss, Gradient norm, and Error", fname=None):
     ax3.set_xlabel(r"iteration $t$")
     ax3.grid()
 
-    if fname is not None:
-        print(f"Saving data to '{fname}'.")
-        plt.savefig(fname)
-        plt.close()
-    else:
-        plt.show()
+    plt.savefig(fname)
+    plt.close()
 
 
-def corrupt_scale(X, k_min=-3, k_max=3):
-    bad_scale = 10**np.linspace(k_min, k_max, X.shape[1])
-    np.random.shuffle(bad_scale)
-    return X[:].multiply(bad_scale.reshape(1,-1)).tocsr()
+def savedata(data, fname):
+    with open(fname, 'wb') as f:
+        pickle.dump(data, f)
 
 
 def main(args):
@@ -103,7 +104,7 @@ def main(args):
     print("We have %d samples, each has up to %d features." % (X.shape[0], X.shape[1]))
 
     if args.corrupt is not None:
-        print("Corrupting scale of data...")
+        print("Corrupting scale of data.")
         if len(args.corrupt) == 2:
             X = corrupt_scale(X, *args.corrupt)
         elif len(args.corrupt) == 1:
@@ -128,12 +129,19 @@ def main(args):
                                       BS=args.batch_size, epochs=args.epochs)
     else:
         raise NotImplementedError(f"Optimizer '{args.optimizer}' not implemented yet.")
-
-    title = rf"{args.optimizer} with BS={args.batch_size}, $\gamma$={args.gamma}, $\lambda$={args.lam}"
-    if "OASIS" in args.optimizer:
-        title += rf", $\beta$={args.beta}, $\alpha$={args.alpha}"
     print("Done.")
-    plot_data(data, title=title, fname=args.savefig)
+
+    if args.savefig is not None:
+        # Create title
+        title = rf"{args.optimizer} with BS={args.batch_size}, $\gamma$={args.gamma}, $\lambda$={args.lam}"
+        if "OASIS" in args.optimizer:
+            title += rf", $\beta$={args.beta}, $\alpha$={args.alpha}"
+        print(f"Saving plot to '{args.savefig}'.")
+        savefig(data, args.savefig, title=title)
+
+    if args.savedata is not None:
+        print(f"Saving data to '{args.savedata}'.")
+        savedata(data, args.savedata)
 
 
 if __name__ == "__main__":

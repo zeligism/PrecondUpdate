@@ -1,7 +1,11 @@
 
-ja_file="${1:-"experiment.ja"}"
-mkdir -p "plots"
-rm -f "${ja_file}"
+JA_FILE="${1:-"experiment.ja"}"
+PLOT_DIR="plots"
+LOG_DIR="log"
+
+rm -f "${JA_FILE}"
+mkdir -p "${PLOT_DIR}"
+mkdir -p "${LOG_DIR}"
 
 # Set up your default options here
 run="python src/train.py"
@@ -23,8 +27,10 @@ for BS in "${BATCH_SIZES[@]}"; do
                 for alpha in "${ALPHAS[@]}"; do
                     command="${default_run}"
                     command+=" -BS ${BS} --gamma ${gamma} --lam ${lam} --beta ${beta} --alpha ${alpha}"
-                    command+=" --savefig 'plots/plot(BS=${BS},gamma=${gamma},lam=${lam},beta=${beta},alpha=${alpha}).png'"
-                    echo "${command}" >> "${ja_file}"
+                    command_info="BS=${BS},gamma=${gamma},lam=${lam},beta=${beta},alpha=${alpha}"
+                    #command+=" --savefig '${PLOT_DIR}/plot(${command_info}).png'"
+                    command+=" --savedata '${LOG_DIR}/data(${command_info}).pkl'"
+                    echo "${command}" >> "${JA_FILE}"
                 done
             done
         done
@@ -32,5 +38,5 @@ for BS in "${BATCH_SIZES[@]}"; do
 done
 
 # Check job array file and number of jobs
-#echo "job array has $(wc -l < "${ja_file}") jobs:"
-cat "${ja_file}"
+#echo "job array has $(wc -l < "${JA_FILE}") jobs:"
+cat "${JA_FILE}"
