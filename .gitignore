@@ -1,0 +1,6 @@
+.DS_Store
+datasets/
+log/
+plots/
+mycache/
+src/__pycache__/
