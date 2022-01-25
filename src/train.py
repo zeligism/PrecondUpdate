@@ -17,9 +17,9 @@ from optimizer import *
 mem = Memory("./mycache")
 DATASET_DIR = "datasets"
 DATASETS = ("a1a",)
-OPTIMIZERS = ("SGD", "SARAH", "SGD-Hessian", "SARAH-Hessian", "OASIS", "SARAH-AdaHessian")
-BAD_SCALE = lambda d: 10**np.linspace(-3,3,d)
-#BAD_SCALE = lambda d: 10**np.linspace(-3,5,d)**3
+OPTIMIZERS = ("SGD", "SVRG", "SARAH",
+              "SGD-Hessian", "SVRG-Hessian", "SARAH-Hessian",
+              "OASIS", "SGD-OASIS", "SVRG-OASIS", "SARAH-OASIS")
 
 
 def parse_args():
@@ -28,11 +28,13 @@ def parse_args():
     parser.add_argument("-s", "--seed", type=int, default=None, help='random seed')
     parser.add_argument("--dataset", type=str, choices=DATASETS, default="a1a",
                         help="name of dataset (in 'datasets' directory")
-    parser.add_argument("--corrupt", action="store_true", help="corrupt scale of dataset")
+    parser.add_argument("--corrupt", nargs="*", type=int, default=None, help="If specified, corrupt scale of dataset."\
+                        "Takes at most two values: k_min, k_max, specifying the range of powers in scale."\
+                        "If one value k is given, the range will be (-k,k) (otherwise, default to (-3,3)).")
     parser.add_argument("--savefig", type=str, default=None,
                         help="save plots under this name (default: don't save)")
 
-    parser.add_argument("--optimizer", type=str, choices=OPTIMIZERS, default="SARAH-AdaHessian", help="name of optimizer")
+    parser.add_argument("--optimizer", type=str, choices=OPTIMIZERS, default="SARAH-OASIS", help="name of optimizer")
     parser.add_argument("-T", "--epochs", type=int, default=5, help="number of iterations/epochs to run")
     parser.add_argument("-BS", "--batch_size", type=int, default=1, help="batch size")
     parser.add_argument("-lr", "--gamma", type=float, default=0.02, help="base learning rate")
@@ -51,21 +53,25 @@ def get_data(filePath):
     return data[0], data[1]
 
 
-def plot_data(data, fname=None):
+def plot_data(data, title="Loss, Gradient norm, and Error", fname=None):
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
     fig.set_size_inches(20, 6)
+    plt.suptitle(title)
 
     ax1.plot(data[:,0])
     ax1.set_ylabel(r"$F(w_t)$")
-    ax1.set_xlabel(r"iteration $t$")  
+    ax1.set_xlabel(r"iteration $t$")
+    ax1.grid()
 
     ax2.semilogy(data[:,1])
     ax2.set_ylabel(r"$||\nabla F(w_t)||^2$")
-    ax2.set_xlabel(r"iteration $t$") 
+    ax2.set_xlabel(r"iteration $t$")
+    ax2.grid()
 
     ax3.plot(data[:,2])
     ax3.set_ylabel(r"error")
-    ax3.set_xlabel(r"iteration $t$") 
+    ax3.set_xlabel(r"iteration $t$")
+    ax3.grid()
 
     if fname is not None:
         print(f"Saving data to '{fname}'.")
@@ -75,9 +81,8 @@ def plot_data(data, fname=None):
         plt.show()
 
 
-def corrupt_scale(X, bad_scale=None):
-    if bad_scale is None:
-        bad_scale = BAD_SCALE(X.shape[1])
+def corrupt_scale(X, k_min=-3, k_max=3):
+    bad_scale = 10**np.linspace(k_min, k_max, X.shape[1])
     np.random.shuffle(bad_scale)
     return X[:].multiply(bad_scale.reshape(1,-1)).tocsr()
 
@@ -97,15 +102,20 @@ def main(args):
     X = normalize(X, norm='l2', axis=1)
     print("We have %d samples, each has up to %d features." % (X.shape[0], X.shape[1]))
 
-    if args.corrupt:
+    if args.corrupt is not None:
         print("Corrupting scale of data...")
-        X = corrupt_scale(X)
+        if len(args.corrupt) == 2:
+            X = corrupt_scale(X, *args.corrupt)
+        elif len(args.corrupt) == 1:
+            X = corrupt_scale(X, -args.corrupt[0], args.corrupt[0])
+        else:
+            X = corrupt_scale(X)
 
     print(f"Running {args.optimizer}...")
     if args.optimizer == "SGD":
-        wopt, data = SGD(X, y, gamma=args.gamma, BS=args.batch_size, T=args.epochs)
+        wopt, data = SGD(X, y, gamma=args.gamma, BS=args.batch_size, T=args.epochs, lam=args.lam)
     elif args.optimizer == "SARAH":
-        wopt, data = SARAH(X, y, gamma=args.gamma, BS=args.batch_size, epochs=args.epochs)
+        wopt, data = SARAH(X, y, gamma=args.gamma, BS=args.batch_size, epochs=args.epochs, lam=args.lam)
     elif args.optimizer == "SGD-Hessian":
         wopt, data = SGD_Hessian(X, y, gamma=args.gamma, BS=args.batch_size, lam=args.lam, T=args.epochs)
     elif args.optimizer == "SARAH-Hessian":
@@ -113,14 +123,17 @@ def main(args):
     elif args.optimizer == "OASIS":
         wopt, data = OASIS(X, y, gamma=args.gamma, beta=args.beta, alpha=args.alpha, lam=args.lam,
                            BS=args.batch_size, epochs=args.epochs)
-    elif args.optimizer == "SARAH-AdaHessian":
-        wopt, data = SARAH_AdaHessian(X, y, gamma=args.gamma, beta=args.beta, alpha=args.alpha, lam=args.lam,
+    elif args.optimizer == "SARAH-OASIS":
+        wopt, data = SARAH_OASIS(X, y, gamma=args.gamma, beta=args.beta, alpha=args.alpha, lam=args.lam,
                                       BS=args.batch_size, epochs=args.epochs)
     else:
-        raise NotImplementedError(f"Optimizer '{args.optimizer}' not implemented.")
+        raise NotImplementedError(f"Optimizer '{args.optimizer}' not implemented yet.")
 
+    title = rf"{args.optimizer} with BS={args.batch_size}, $\gamma$={args.gamma}, $\lambda$={args.lam}"
+    if "OASIS" in args.optimizer:
+        title += rf", $\beta$={args.beta}, $\alpha$={args.alpha}"
     print("Done.")
-    plot_data(data, fname=args.savefig)
+    plot_data(data, title=title, fname=args.savefig)
 
 
 if __name__ == "__main__":
