@@ -88,11 +88,11 @@ def savedata(data, fname):
         pickle.dump(data, f)
 
 
-def main(args):
+def train(args):
     # check if dataset is downloaded
     args.dataset = os.path.join(DATASET_DIR, args.dataset)
     if not os.path.isfile(args.dataset):
-        raise FileNotFoundError(f"Could not find dataset at 'datasets/{args.dataset}'")
+        raise FileNotFoundError(f"Could not find dataset at '{args.dataset}'")
     print(f"Using dataset '{args.dataset}'.")
     # Set seed if given
     if args.seed is not None:
@@ -144,6 +144,9 @@ def main(args):
         savedata(data, args.savedata)
 
 
-if __name__ == "__main__":
+def main():
     args = parse_args()
-    main(args)
+    train(args)
+
+if __name__ == "__main__":
+    main()
