@@ -18,9 +18,7 @@ from optimizer import *
 mem = Memory("./mycache")
 DATASET_DIR = "datasets"
 DATASETS = ("a1a",)
-OPTIMIZERS = ("SGD", "SVRG", "SARAH",
-              "SGD-Hessian", "SVRG-Hessian", "SARAH-Hessian",
-              "OASIS", "SGD-OASIS", "SVRG-OASIS", "SARAH-OASIS")
+OPTIMIZERS = ("SGD", "SARAH", "OASIS", "SVRG", "L-SVRG",)
 
 
 def parse_args():
@@ -36,12 +34,14 @@ def parse_args():
     parser.add_argument("--savedata", type=str, default=None, help="save data log (default: don't save)")
 
     parser.add_argument("--optimizer", type=str, choices=OPTIMIZERS, default="SARAH-OASIS", help="name of optimizer")
-    parser.add_argument("-T", "--epochs", type=int, default=5, help="number of iterations/epochs to run")
-    parser.add_argument("-BS", "--batch_size", type=int, default=1, help="batch size")
+    parser.add_argument("-T", "--iters", dest="T", type=int, default=5, help="number of iterations to run")
+    parser.add_argument("-BS", "--batch_size", dest="BS", type=int, default=1, help="batch size")
     parser.add_argument("-lr", "--gamma", type=float, default=0.02, help="base learning rate")
     parser.add_argument("--alpha", type=float, default=1e-5, help="min value of diagonal of hessian estimate")
     parser.add_argument("--beta", type=float, default=0.999, help="adaptive rate of hessian estimate")
     parser.add_argument("--lam", type=float, default=0., help="regularization coefficient")
+    parser.add_argument("--precond", type=str.lower, default=None, help="Diagonal preconditioning method (default: none)")
+    parser.add_argument("-p", "--update-p", dest="p", type=float, default=0.99, help="probability of updating anchor point in L-SVRG")
 
     # Parse command line args
     args = parser.parse_args()
@@ -113,28 +113,30 @@ def train(args):
             X = corrupt_scale(X)
 
     print(f"Running {args.optimizer}...")
+    kwargs = dict(T=args.T, BS=args.BS, gamma=args.gamma,
+                  beta=args.beta, lam=args.lam, alpha=args.alpha)
     if args.optimizer == "SGD":
-        wopt, data = SGD(X, y, gamma=args.gamma, BS=args.batch_size, T=args.epochs, lam=args.lam)
+        wopt, data = SGD(X, y, **kwargs, precond=args.precond)
     elif args.optimizer == "SARAH":
-        wopt, data = SARAH(X, y, gamma=args.gamma, BS=args.batch_size, epochs=args.epochs, lam=args.lam)
-    elif args.optimizer == "SGD-Hessian":
-        wopt, data = SGD_Hessian(X, y, gamma=args.gamma, BS=args.batch_size, lam=args.lam, T=args.epochs)
-    elif args.optimizer == "SARAH-Hessian":
-        wopt, data = SARAH_Hessian(X, y, gamma=args.gamma, BS=args.batch_size, lam=args.lam, epochs=args.epochs)
+        wopt, data = SARAH(X, y, **kwargs, precond=args.precond)
     elif args.optimizer == "OASIS":
-        wopt, data = OASIS(X, y, gamma=args.gamma, beta=args.beta, alpha=args.alpha, lam=args.lam,
-                           BS=args.batch_size, epochs=args.epochs)
-    elif args.optimizer == "SARAH-OASIS":
-        wopt, data = SARAH_OASIS(X, y, gamma=args.gamma, beta=args.beta, alpha=args.alpha, lam=args.lam,
-                                      BS=args.batch_size, epochs=args.epochs)
+        wopt, data = OASIS(X, y, **kwargs)
+    elif args.optimizer == "SVRG":
+        wopt, data = SVRG(X, y, **kwargs, precond=args.precond)
+    elif args.optimizer == "L-SVRG":
+        wopt, data = L_SVRG(X, y, **kwargs, precond=args.precond, p=args.p)
     else:
         raise NotImplementedError(f"Optimizer '{args.optimizer}' not implemented yet.")
     print("Done.")
 
     if args.savefig is not None:
         # Create title
-        title = rf"{args.optimizer} with BS={args.batch_size}, $\gamma$={args.gamma}, $\lambda$={args.lam}"
-        if "OASIS" in args.optimizer:
+        title = rf"{args.optimizer} with BS={args.BS}, $\gamma$={args.gamma}, $\lambda$={args.lam}"
+        if args.optimizer == "L-SVRG":
+            title += f", p={args.p}"
+        if args.precond is not None:
+            title += rf", precond={args.precond}"
+        if args.precond == "hutchinson":
             title += rf", $\beta$={args.beta}, $\alpha$={args.alpha}"
         print(f"Saving plot to '{args.savefig}'.")
         savefig(data, args.savefig, title=title)

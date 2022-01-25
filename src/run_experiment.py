@@ -35,9 +35,11 @@ def main():
                          epochs=5,
                          gamma=gamma,
                          lam=lam,
-                         optimizer="SARAH-OASIS",
+                         optimizer="SARAH",
+                         precond="hutchinson",
                          savedata=logfile,
-                         savefig=None, seed=123)
+                         savefig=None,
+                         seed=123)
         train(args)
 
 if __name__ == "__main__":
