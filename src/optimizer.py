@@ -2,19 +2,20 @@
 from loss import F, grad, hessian, hvp
 import numpy as np
 
-def SGD(X, y, gamma=0.02, BS=1, T=10000):
+def SGD(X, y, gamma=0.02, BS=1, T=10000, lam=0.0):
     data = []
     w = np.zeros(X.shape[1])
     for it in range(T):
         i = np.random.choice(X.shape[0], BS)
-        w = w - gamma * grad(X,y,w,i)
+        g = grad(X,y,w,i) + lam * w
+        w = w - gamma * g
         data.append((F(X,y,w),
                     np.linalg.norm(grad(X,y,w))**2,
                     np.mean(X.dot(w)*y < 0)))
     return w, np.array(data)
 
 
-def SARAH(X, y, gamma=0.2, BS=1, epochs=10):
+def SARAH(X, y, gamma=0.2, BS=1, epochs=10, lam=0.0):
     data = []
     wn = np.zeros(X.shape[1])
     for ep in range(epochs):
@@ -23,8 +24,8 @@ def SARAH(X, y, gamma=0.2, BS=1, epochs=10):
         wp = wn[:]
         for it in range(10**10):
             i = np.random.choice(X.shape[0], BS)
-            gn = grad(X,y,wn,i)
-            gp = grad(X,y,wp,i)
+            gn = grad(X,y,wn,i) + lam * wn
+            gp = grad(X,y,wp,i) + lam * wp
             v += gn - gp
             wp = wn[:]
             wn = wn - gamma * v
@@ -44,7 +45,7 @@ def SGD_Hessian(X, y, gamma=0.02, BS=1, T=10000, lam=0.0, full_hessian=False):
     for it in range(T):
         i = np.random.choice(X.shape[0], BS)
         # hessian
-        g = grad(X,y,w,i) + lam * np.linalg.norm(w)
+        g = grad(X,y,w,i) + lam * w
         iH = None if full_hessian else i
         H = hessian(X,y,w,iH) + lam * np.eye(w.shape[0]) # full Hessian
         w = w - gamma * np.diagonal(H+1e-10)**-1 * g
@@ -64,8 +65,8 @@ def SARAH_Hessian(X, y, gamma=0.2, BS=1, epochs=10, lam=0.0, full_hessian=False)
         wp = wn[:]
         for it in range(10**10):
             i = np.random.choice(X.shape[0], BS)
-            gn = grad(X,y,wn,i) + lam * np.linalg.norm(wn)
-            gp = grad(X,y,wp,i) + lam * np.linalg.norm(wp)
+            gn = grad(X,y,wn,i) + lam * wn
+            gp = grad(X,y,wp,i) + lam * wp
             v += gn - gp
             wp = wn[:]
             # hessian
@@ -127,7 +128,7 @@ def OASIS(X, y, gamma=1.0, beta=0.99, alpha=1e-5, BS=1, T=10000,):
     return w, np.array(data)
 
 
-def SARAH_AdaHessian(X, y, gamma=0.2, beta=0.999, alpha=1e-5, BS=1, epochs=10, lam=0.0):
+def SARAH_OASIS(X, y, gamma=0.2, beta=0.999, alpha=1e-5, BS=1, epochs=10, lam=0.0):
     data = []
     wn = np.zeros(X.shape[1])
     D = np.ones_like(wn)
@@ -137,8 +138,8 @@ def SARAH_AdaHessian(X, y, gamma=0.2, beta=0.999, alpha=1e-5, BS=1, epochs=10, l
         wp = wn[:]
         for it in range(10**10):
             i = np.random.choice(X.shape[0], BS)
-            gn = grad(X,y,wn,i) + lam * np.linalg.norm(wn)
-            gp = grad(X,y,wp,i) + lam * np.linalg.norm(wp)
+            gn = grad(X,y,wn,i) + lam * wn
+            gp = grad(X,y,wp,i) + lam * wp
             v += gn - gp
             wp = wn[:]
             # estimate hessian diagonal
