@@ -61,13 +61,13 @@ def F(X, y, w, i=None):
         X = X[i,:]
     return logistic_loss(X,y,w)
 
-def grad(X, y, w, i=None):
+def grad(X, y, w, i=None, lam=0.0):
     if i is not None:
         if isinstance(i, int):
             i = [i]
         y = y[i]
         X = X[i,:]
-    return logistic_loss_grad(X,y,w)
+    return logistic_loss_grad(X,y,w) + lam * w
 
 def hessian(X, y, w, i=None):
     if i is not None:
