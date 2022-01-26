@@ -14,4 +14,8 @@ for dataset in "${DATASETS[@]}"; do
     fi
     dataset_path="${DATASETS_DIR}/${dataset}"
     [[ ! -f "${dataset_path}" ]] && wget -O "${dataset_path}" "$LINK"
+    if [[ $dataset != "a1a" && $dataset != "a9a" && $dataset != "w8a" ]]; then
+        bunzip2 "${dataset_path}" &&
+        mv "${dataset_path}.out" "${dataset_path}"  # remove .out from decompression
+    fi
 done
