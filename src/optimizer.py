@@ -2,6 +2,8 @@
 from loss import F, grad, hessian, hvp
 import numpy as np
 
+DATA_FREQ_PER_EPOCH = 5  # TODO: add this param somewhere
+
 def collect_data(ep,X,y,w,lam=0.0):
     loss = F(X,y,w)
     g_norm = np.linalg.norm(grad(X,y,w))**2
@@ -14,43 +16,50 @@ def sample_z(size):
 def norm_scaled(x,D):
     return np.sqrt(np.sum(x * D * x))
 
-def initialize_D(X,y,w, precond="hutchinson", N=100):
+def initialize_D(X,y,w, BS, precond="hutchinson", N=100):
     if precond == "hessian":
         return np.diagonal(hessian(X,y,w)) + 1e-10
     elif precond == "hutchinson":
         # grad(w+z) - grad(w) approximates H(w)z
         D = 0.
         for _ in range(N):
-            z = sample_z()
-            D += z * (grad(X,y,w+z) - grad(X,y,w)) / N
+            z = sample_z(w.shape)
+            i = np.random.choice(X.shape[0], BS)
+            D += z * (grad(X,y,w+z,i) - grad(X,y,w,i)) / N
         return D
     else:
         return 1.
 
 
 def OASIS(X, y, T=10000, BS=1, gamma=1.0, beta=0.99, lam=0.0, alpha=1e-5):
+    ep = 0  # count effective (full) passes through datatset
     data = []
     theta = 1e10
     w = np.zeros(X.shape[1])
-    D = initialize_D(X,y,w) + lam
+    D = initialize_D(X,y,w,BS,precond="hutchinson") + lam
 
     # first step
     i = np.random.choice(X.shape[0], BS)
     g = grad(X,y,w,i,lam=lam)
+    ep += BS / X.shape[0]
+    # update
     w_prev = w[:]
     w = w - gamma * D**-1 * g
 
-    for it in range(T):
-        i = np.random.choice(X.shape[0], BS)
+    for it in range(T * (X.shape[0] // BS)):
         # Calculate gradients
+        i = np.random.choice(X.shape[0], BS)
         g_prev = grad(X,y,w_prev,i,lam=lam)
         g = grad(X,y,w,i,lam=lam)
+        ep += BS / X.shape[0]
+
         # estimate hessian diagonal
         z = sample_z(w.shape)
         #D_est = z * hvp(X,y,w,z,i) + lam
         D_est = z * (grad(X,y,w+z,i,lam=lam) - g) + lam
         D = np.abs(beta * D + (1-beta) * D_est)
         D[D < alpha] = alpha
+
         # adaptive learning rate @TODO
         """
         gamma_prev = gamma
@@ -58,21 +67,27 @@ def OASIS(X, y, T=10000, BS=1, gamma=1.0, beta=0.99, lam=0.0, alpha=1e-5):
         gamma = np.minimum(gamma * np.sqrt(1 + theta), gamma_est)
         theta = gamma / gamma_prev
         """
+
         # update
         w_prev = w[:]
         w = w - gamma * D**-1 * g
-        data.append(collect_data(X,y,w,lam))
+
+        if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
+            data.append(collect_data(ep,X,y,w,lam))
     return w, np.array(data)
 
 
 def SGD(X, y, T=10000, BS=1, gamma=0.0002, beta=0.999, lam=0.0, alpha=1e-5, precond="hutchinson"):
+    ep = 0  # count effective (full) passes through datatset
     data = []
     w = np.zeros(X.shape[1])
-    D = initialize_D(X,y,w) + lam
-    for it in range(T):
+    D = initialize_D(X,y,w,BS,precond=precond) + lam
+
+    for it in range(T * (X.shape[0] // BS)):
         # Calculate gradients
         i = np.random.choice(X.shape[0], BS)
         g = grad(X,y,w,i,lam=lam)
+        ep += BS / X.shape[0]
 
         # Diagonal preconditioning
         if precond == "hessian":
@@ -91,19 +106,24 @@ def SGD(X, y, T=10000, BS=1, gamma=0.0002, beta=0.999, lam=0.0, alpha=1e-5, prec
         w = w - gamma * D**-1 * g
 
         # Update data
-        data.append(collect_data(X,y,w,lam))
+        if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
+            data.append(collect_data(ep,X,y,w,lam))
 
     return w, np.array(data)
 
 
 def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond="hutchinson"):
+    ep = 0  # count effective (full) passes through datatset
     data = []
     wn = np.zeros(X.shape[1])
-    D = initialize_D(X,y,wn) + lam
-    for ep in range(T):
+    D = initialize_D(X,y,wn,BS,precond=precond) + lam
+
+    for epoch in range(T):
         v = grad(X,y,wn,lam=lam)
+        ep += 1
         nv0 = np.linalg.norm(v)
         wp = wn[:]
+
         for it in range(10**10):
             # Calculate gradients
             i = np.random.choice(X.shape[0], BS)
@@ -111,6 +131,7 @@ def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond=
             gp = grad(X,y,wp,i,lam=lam)
             v += gn - gp
             wp = wn[:]
+            ep += BS / X.shape[0]
 
             # Diagonal preconditioning
             if precond == "hessian":
@@ -129,30 +150,36 @@ def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond=
             wn = wn - gamma * D**-1 * v
 
             # Update data
-            data.append(collect_data(X,y,wn,lam))
+            if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
+                data.append(collect_data(ep,X,y,wn,lam))
 
             # Inner loop stopping criterion
             nv = np.linalg.norm(v)
-            if nv < 0.1*nv0 or it > X.shape[0]:
+            if nv < 0.1*nv0 or it > X.shape[0] // BS:
                 break
 
     return wn, np.array(data)
 
 
 def SVRG(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond=None):
+    ep = 0  # count effective (full) passes through datatset
     data = []
     w_out = np.zeros(X.shape[1])
-    D = initialize_D(X,y,w_out) + lam
-    for ep in range(T):
+    D = initialize_D(X,y,w_out,BS,precond=precond) + lam
+
+    for epoch in range(T):
         g_full = grad(X,y,w_out,lam=lam)
+        ep += 1
         gnorm0 = np.linalg.norm(g_full)
         w_in = w_out[:]
+
         for it in range(10**10):
             # Calculate gradients
             i = np.random.choice(X.shape[0], BS)
             g_in = grad(X,y,w_in,i,lam=lam)
             g_out = grad(X,y,w_out,i,lam=lam)
             v = g_in - g_out + g_full
+            ep += BS / X.shape[0]
 
             # Diagonal preconditioning
             if precond == "hessian":
@@ -171,11 +198,12 @@ def SVRG(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond=N
             w_in = w_in - gamma * D**-1 * v
 
             # Update data
-            data.append(collect_data(X,y,w_in,lam))
+            if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
+                data.append(collect_data(ep,X,y,w_in,lam))
 
             # Inner loop stopping criterion
             gnorm = np.linalg.norm(g_full)
-            if gnorm < 0.1 * gnorm0 or it > X.shape[0]:
+            if gnorm < 0.1 * gnorm0 or it > X.shape[0] // BS:
                 w_out = w_in[:]
                 break
 
@@ -183,17 +211,22 @@ def SVRG(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond=N
 
 
 def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond=None, p=0.99):
+    ep = 0  # count effective (full) passes through datatset
     data = []
     w_out = np.zeros(X.shape[1])
+    D = initialize_D(X,y,w_out,BS,precond=precond) + lam
+
     w_in = w_out[:]
     g_full = grad(X,y,w_out,lam=lam)
-    D = initialize_D(X,y,w_out) + lam
-    for ep in range(T):
+    ep += 1
+
+    for it in range(T * (X.shape[0] // BS)):
         # Calculate gradients
         i = np.random.choice(X.shape[0], BS)
         g_in = grad(X,y,w_in,i,lam=lam)
         g_out = grad(X,y,w_out,i,lam=lam)
         v = g_in - g_out + g_full
+        ep += BS / X.shape[0]
 
         # Diagonal preconditioning
         if precond == "hessian":
@@ -213,12 +246,14 @@ def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, prec
         if np.random.rand(1)[0] > p:
             w_out = w_in[:]
             g_full = grad(X,y,w_out,lam=lam)
+            ep += 1
 
         # Update rule
         w_in = w_in - gamma * D**-1 * v
 
         # Update data
-        data.append(collect_data(X,y,w_in,lam))
+        if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
+            data.append(collect_data(ep,X,y,w_in,lam))
 
     return w_in, np.array(data)
 
