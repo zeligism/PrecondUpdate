@@ -99,7 +99,7 @@ def SGD(X, y, T=10000, BS=1, gamma=0.0002, beta=0.999, lam=0.0, alpha=1e-5, prec
 def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond="hutchinson"):
     data = []
     wn = np.zeros(X.shape[1])
-    D = initialize_D(X,y,w) + lam
+    D = initialize_D(X,y,wn) + lam
     for ep in range(T):
         v = grad(X,y,wn,lam=lam)
         nv0 = np.linalg.norm(v)
@@ -142,7 +142,7 @@ def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond=
 def SVRG(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond=None):
     data = []
     w_out = np.zeros(X.shape[1])
-    D = initialize_D(X,y,w) + lam
+    D = initialize_D(X,y,w_out) + lam
     for ep in range(T):
         g_full = grad(X,y,w_out,lam=lam)
         gnorm0 = np.linalg.norm(g_full)
@@ -187,7 +187,7 @@ def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, prec
     w_out = np.zeros(X.shape[1])
     w_in = w_out[:]
     g_full = grad(X,y,w_out,lam=lam)
-    D = 1.
+    D = initialize_D(X,y,w_out) + lam
     for ep in range(T):
         # Calculate gradients
         i = np.random.choice(X.shape[0], BS)
