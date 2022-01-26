@@ -1,14 +1,12 @@
 
+import time
 import argparse
 import pickle
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib
 import sklearn
 import scipy
-import time
-
 from joblib import Memory
 from sklearn.datasets import load_svmlight_file
 from sklearn.preprocessing import normalize
@@ -17,12 +15,12 @@ from optimizer import *
 
 mem = Memory("./mycache")
 DATASET_DIR = "datasets"
-DATASETS = ("a1a",)
+DATASETS = ("a1a", "a9a", "rcv1", "covtype", "real-sim", "w8a", "ijcnn1", "news20",)
 OPTIMIZERS = ("SGD", "SARAH", "OASIS", "SVRG", "L-SVRG",)
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="SGD and SARAH with Hessian scaling")
+    parser = argparse.ArgumentParser(description="Optimizers with diagonal preconditioning")
 
     parser.add_argument("-s", "--seed", type=int, default=None, help='random seed')
     parser.add_argument("--dataset", type=str, choices=DATASETS, default="a1a",
@@ -34,14 +32,14 @@ def parse_args():
     parser.add_argument("--savedata", type=str, default=None, help="save data log (default: don't save)")
 
     parser.add_argument("--optimizer", type=str, choices=OPTIMIZERS, default="SARAH-OASIS", help="name of optimizer")
-    parser.add_argument("-T", "--iters", dest="T", type=int, default=5, help="number of iterations to run")
+    parser.add_argument("-T", "--epochs", dest="T", type=int, default=5, help="number of epochs to run")
     parser.add_argument("-BS", "--batch_size", dest="BS", type=int, default=1, help="batch size")
     parser.add_argument("-lr", "--gamma", type=float, default=0.02, help="base learning rate")
     parser.add_argument("--alpha", type=float, default=1e-5, help="min value of diagonal of hessian estimate")
     parser.add_argument("--beta", type=float, default=0.999, help="adaptive rate of hessian estimate")
     parser.add_argument("--lam", type=float, default=0., help="regularization coefficient")
     parser.add_argument("--precond", type=str.lower, default=None, help="Diagonal preconditioning method (default: none)")
-    parser.add_argument("-p", "--update-p", dest="p", type=float, default=0.99, help="probability of updating anchor point in L-SVRG")
+    parser.add_argument("-p", "--update-p", dest="p", type=float, default=0.99, help="probability of updating checkpoint in L-SVRG")
 
     # Parse command line args
     args = parser.parse_args()
@@ -64,23 +62,26 @@ def savefig(data, fname, title="Loss, gradient norm squared, and error"):
     fig.set_size_inches(20, 6)
     plt.suptitle(title)
 
-    ax1.plot(data[:,0])
+    ax1.plot(data[:,0], data[:,1])
     ax1.set_ylabel(r"$F(w_t)$")
-    ax1.set_xlabel(r"iteration $t$")
+    ax1.set_xlabel("effective passes")
     ax1.grid()
 
-    ax2.semilogy(data[:,1])
+    ax2.semilogy(data[:,0], data[:,2])
     ax2.set_ylabel(r"$||\nabla F(w_t)||^2$")
-    ax2.set_xlabel(r"iteration $t$")
+    ax2.set_xlabel("effective passes")
     ax2.grid()
 
-    ax3.plot(data[:,2])
+    ax3.plot(data[:,0], data[:,3])
     ax3.set_ylabel(r"error")
-    ax3.set_xlabel(r"iteration $t$")
+    ax3.set_xlabel("effective passes")
     ax3.grid()
 
-    plt.savefig(fname)
-    plt.close()
+    if fname is None:
+        plt.show()
+    else:
+        plt.savefig(fname)
+        plt.close()
 
 
 def savedata(data, fname):
@@ -106,7 +107,7 @@ def train(args):
     if args.corrupt is not None:
         print("Corrupting scale of data.")
         if len(args.corrupt) == 2:
-            X = corrupt_scale(X, *args.corrupt)
+            X = corrupt_scale(X, args.corrupt[0], args.corrupt[1])
         elif len(args.corrupt) == 1:
             X = corrupt_scale(X, -args.corrupt[0], args.corrupt[0])
         else:
