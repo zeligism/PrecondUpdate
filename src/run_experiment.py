@@ -7,39 +7,78 @@ from itertools import product
 from random import random
 from train import train
 
-BATCH_SIZES = (1, 10)
-GAMMAS = (1e0, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6)
-LAMBDAS = (0.0, 1e1, 1e0, 1e-1, 1e-3, 1e-5)
-BETAS = (0.99, 0.999)
-ALPHAS = (1e-3, 1e-7)
-HYPERPARAMS = (BATCH_SIZES, GAMMAS, LAMBDAS, BETAS, ALPHAS)
+SEED = 123
+LOG_DIR = "log"
+
+#DATASETS = ("covtype", "ijcnn1", "news20", "rcv1",)
+DATASETS = ("a9a", "rcv1", "covtype", "real-sim", "w8a",)
+OPTIMIZERS = ("SGD", "SARAH", "SVRG",)
+BATCH_SIZES = (10,)
+GAMMAS = (2**i for i in range(-20,6))
+LAMBDAS = (0.0,)
+PS = (0.99,)
+PRECONDS = (None, "hutchinson")
+BETAS = (0.999,)
+ALPHAS = (1e-5,)
+CORRUPT = (None, [])  # empty list means use default
+HYPERPARAM_GRID = product(DATASETS, OPTIMIZERS,
+                          BATCH_SIZES, GAMMAS, LAMBDAS, PS, PRECONDS, BETAS, ALPHAS, CORRUPT)
+
 
 def main():
-    for BS, gamma, lam, beta, alpha in product(*HYPERPARAMS):
-        # Give other jobs a chance
-        time.sleep(3 * random())
-        logfile = f"log/data(BS={BS},gamma={gamma},lam={lam},beta={beta},alpha={alpha}).pkl"
-        print(logfile)
-        # Skip if another job started on this
+    # Create log dirs on start up
+    if not os.path.isdir(LOG_DIR):
+        os.mkdir(LOG_DIR)
+    for dataset in DATASETS:
+        dataset_path = os.path.join(LOG_DIR, dataset)
+        if not os.path.isdir(dataset_path):
+            os.mkdir(dataset_path)
+        if not os.path.isdir(dataset_path + "_bad"):
+            os.mkdir(dataset_path + "_bad")
+
+    for dataset, optimizer, BS, gamma, lam, p, precond, beta, alpha, corrupt in HYPERPARAM_GRID:
+        # Give other jobs a chance to avoid conflicts
+        time.sleep(0.1 * random())
+
+        # Create log file name in a way that remembers all args
+        args_str = f"BS={BS},gamma={gamma},lam={lam}"
+        if optimizer == "L-SVRG":
+            args_str += f",p={p}"
+        if precond is not None:
+            args_str += f",precond={precond}"
+        if precond == "hutchinson":
+            args_str += f",beta={beta},alpha={alpha}"
+
+        # log file is log/dataset/optimizer(arg1=val1,...,argN=valN).pkl
+        dataset_dir = dataset + ("" if corrupt is None else "_bad")
+        logfile = f"{optimizer}({args_str}).pkl"
+        logfile = os.path.join(LOG_DIR, dataset_dir, logfile)
+
+        # Skip if another job already started on this
         if os.path.exists(logfile):
             continue
-        # Quickly touch a log file to reserve this job
+        # Quickly touch the log file to reserve this job
         with open(logfile, "wb") as f:
             pickle.dump([], f)
 
+        # Create arg namespace to pass to train
         args = Namespace(alpha=alpha,
-                         batch_size=BS,
+                         BS=BS,
                          beta=beta,
-                         corrupt=[],
-                         dataset="a1a",
-                         epochs=5,
+                         corrupt=corrupt,
+                         dataset=dataset,
+                         T=5, # if optimizer in ("SARAH", "SVRG") else 10000,
                          gamma=gamma,
                          lam=lam,
-                         optimizer="SARAH",
-                         precond="hutchinson",
+                         optimizer=optimizer,
+                         precond=precond,
+                         p=0.99,
                          savedata=logfile,
                          savefig=None,
-                         seed=123)
+                         seed=SEED)
+
+        # Run
+        print(logfile)
         train(args)
 
 if __name__ == "__main__":
