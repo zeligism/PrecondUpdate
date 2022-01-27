@@ -67,7 +67,7 @@ def main():
                          beta=beta,
                          corrupt=corrupt,
                          dataset=dataset,
-                         T=5, # if optimizer in ("SARAH", "SVRG") else 10000,
+                         T=25,
                          gamma=gamma,
                          lam=lam,
                          optimizer=optimizer,
