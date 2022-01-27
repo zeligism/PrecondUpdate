@@ -16,7 +16,7 @@ def sample_z(size):
 def norm_scaled(x,D):
     return np.sqrt(np.sum(x * D * x))
 
-def initialize_D(X,y,w, BS, precond="hutchinson", N=100):
+def initialize_D(X,y,w, BS, precond="hutchinson", N=300):
     if precond == "hessian":
         return np.diagonal(hessian(X,y,w)) + 1e-10
     elif precond == "hutchinson":
@@ -25,7 +25,8 @@ def initialize_D(X,y,w, BS, precond="hutchinson", N=100):
         for _ in range(N):
             z = sample_z(w.shape)
             i = np.random.choice(X.shape[0], BS)
-            D += z * (grad(X,y,w+z,i) - grad(X,y,w,i)) / N
+            #D += z * (grad(X,y,w+z,i) - grad(X,y,w,i)) / N
+            D += z * hvp(X,y,w,z,i) / N
         return D
     else:
         return 1.
@@ -97,8 +98,8 @@ def SGD(X, y, T=10000, BS=1, gamma=0.0002, beta=0.999, lam=0.0, alpha=1e-5, prec
             # estimate hessian diagonal
             z = sample_z(w.shape)
             j = i
-            #D_est = z * hvp(X,y,w,z,j) + lam  # why is this bad
-            D_est = z * (grad(X,y,w+z,j,lam=lam) - g) + lam
+            D_est = z * hvp(X,y,w,z,j) + lam  # why is this bad
+            #D_est = z * (grad(X,y,w+z,j,lam=lam) - g) + lam
             D = np.abs(beta * D + (1-beta) * D_est)
             D[D < alpha] = alpha
 
@@ -141,8 +142,8 @@ def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond=
                 # estimate hessian diagonal
                 z = sample_z(wn.shape)
                 j = i
-                #D_est = z * hvp(X,y,wn,z,j) + lam  # why is this bad
-                D_est = z * (grad(X,y,wn+z,j,lam=lam) - gn) + lam
+                D_est = z * hvp(X,y,wn,z,j) + lam  # why is this bad
+                #D_est = z * (grad(X,y,wn+z,j,lam=lam) - gn) + lam
                 D = np.abs(beta * D + (1-beta) * D_est)
                 D[D < alpha] = alpha
 
@@ -189,8 +190,8 @@ def SVRG(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond=N
                 # estimate hessian diagonal
                 z = sample_z(w_in.shape)
                 j = i
-                #D_est = z * hvp(X,y,wn,z,j) + lam  # why is this bad
-                D_est = z * (grad(X,y,w_in+z,j,lam=lam) - g_in) + lam
+                D_est = z * hvp(X,y,w_in,z,j) + lam  # why is this bad
+                #D_est = z * (grad(X,y,w_in+z,j,lam=lam) - g_in) + lam
                 D = np.abs(beta * D + (1-beta) * D_est)
                 D[D < alpha] = alpha
 
@@ -236,8 +237,8 @@ def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, prec
             # estimate hessian diagonal
             z = sample_z(w_in.shape)
             j = i #np.random.choice(X.shape[0], BS)
-            #D_est = z * hvp(X,y,wn,z,j) + lam  # why is this bad
-            D_est = z * (grad(X,y,w_in+z,j,lam=lam) - g_in) + lam
+            D_est = z * hvp(X,y,w_in,z,j) + lam  # why is this bad
+            #D_est = z * (grad(X,y,w_in+z,j,lam=lam) - g_in) + lam
             D = np.abs(beta * D + (1-beta) * D_est)
             D[D < alpha] = alpha
 
