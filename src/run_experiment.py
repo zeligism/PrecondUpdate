@@ -8,7 +8,7 @@ from random import random
 from train import train
 
 SEED = 123
-LOG_DIR = "log"
+LOG_DIR = "logs"
 
 #DATASETS = ("covtype", "ijcnn1", "news20", "rcv1",)
 DATASETS = ("a9a", "rcv1", "covtype", "real-sim", "w8a",)
@@ -49,7 +49,7 @@ def main():
         if precond == "hutchinson":
             args_str += f",beta={beta},alpha={alpha}"
 
-        # log file is log/dataset/optimizer(arg1=val1,...,argN=valN).pkl
+        # log file is {LOG_DIR}/dataset/optimizer(arg1=val1,...,argN=valN).pkl
         dataset_dir = dataset + ("" if corrupt is None else "_bad")
         logfile = f"{optimizer}({args_str}).pkl"
         logfile = os.path.join(LOG_DIR, dataset_dir, logfile)
