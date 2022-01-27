@@ -95,7 +95,7 @@ def plot_gammas():
                     data_dict[(dataset, optimizer)] += [(data, gamma)]
 
     fig, axes = plt.subplots(len(OPTIMIZERS), len(DATASETS))
-    fig.set_size_inches(20, 6)
+    fig.set_size_inches(20, 12)
     plt.suptitle(rf"Optimizer performance per $\gamma$ per dataset")
     for i, optimizer in enumerate(OPTIMIZERS):
         for j, dataset in enumerate(DATASETS):
@@ -135,7 +135,7 @@ def plot_optimizers():
                     data_dict[dataset] += [(data, optimizer)]
 
     fig, axes = plt.subplots(2, len(DATASETS))
-    fig.set_size_inches(20, 6)
+    fig.set_size_inches(20, 8)
     plt.suptitle(rf"Optimizers performance per dataset")
     for j, dataset in enumerate(DATASETS):
         if dataset not in data_dict:
