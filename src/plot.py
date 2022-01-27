@@ -24,17 +24,17 @@ def savefig(data, fname, title="Loss, gradient norm squared, and error"):
 
     ax1.plot(data[:,0], data[:,1])
     ax1.set_ylabel(r"$F(w_t)$")
-    ax1.set_xlabel("effective passes")
+    ax1.set_xlabel("Effective Passes")
     ax1.grid()
 
     ax2.semilogy(data[:,0], data[:,2])
     ax2.set_ylabel(r"$||\nabla F(w_t)||^2$")
-    ax2.set_xlabel("effective passes")
+    ax2.set_xlabel("Effective Passes")
     ax2.grid()
 
     ax3.plot(data[:,0], data[:,3])
-    ax3.set_ylabel("error")
-    ax3.set_xlabel("effective passes")
+    ax3.set_ylabel("Error")
+    ax3.set_xlabel("Effective Passes")
     ax3.grid()
     
     if fname is None:
@@ -130,11 +130,11 @@ def plot_gammas(corrupt, precond=None):
                 axes[i,j].semilogy(data[:,0], data[:,2],
                                    label=rf"$\gamma = {gamma_str}$", marker=m)
                 axes[i,j].set_ylabel(r"$||\nabla F(w_t)||^2$")
-                axes[i,j].set_xlabel("effective passes")
+                axes[i,j].set_xlabel("Effective Passes")
                 axes[i,j].legend(fontsize=10, loc=1, prop={'size': 7})
 
     fig.tight_layout()
-    plt.savefig(f"plots/gammas(corrupt={corrupt},precond={precond}).png")
+    plt.savefig(f"plots/gammas(corrupt={corrupt},precond={precond is not None}).png")
 
 
 def plot_optimizers(corrupt, precond):
@@ -174,17 +174,17 @@ def plot_optimizers(corrupt, precond):
             axes[0,j].set_title(dataset)
             axes[0,j].semilogy(data[:,0], data[:,2], label=optimizer, marker=m)
             axes[0,j].set_ylabel(r"$||\nabla F(w_t)||^2$")
-            axes[0,j].set_xlabel("effective passes")
+            axes[0,j].set_xlabel("Effective Passes")
             axes[0,j].legend()
 
             axes[1,j].set_title(dataset)
             axes[1,j].plot(data[:,0], data[:,3], label=optimizer, marker=m)
-            axes[1,j].set_ylabel("error")
-            axes[1,j].set_xlabel("effective passes")
+            axes[1,j].set_ylabel("Error")
+            axes[1,j].set_xlabel("Effective Passes")
             axes[1,j].legend()
 
     fig.tight_layout()
-    plt.savefig(f"plots/optimizers(corrupt={corrupt},precond={precond}).png")
+    plt.savefig(f"plots/optimizers(corrupt={corrupt},precond={precond is not None}).png")
 
 
 def main():
