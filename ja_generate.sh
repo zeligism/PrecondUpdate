@@ -7,7 +7,7 @@ mkdir -p "${LOG_DIR}"
 # Set up your default options here
 seed=123
 BS=10
-T=20
+T=25
 lam=0.0
 p=0.99
 beta=0.999
@@ -15,11 +15,12 @@ alpha=1e-5
 run="python src/train.py"
 default_run="$run -s $seed -T $T -BS $BS"
 
-DATASETS=("a9a", "w8a" "real-sim" "rcv1" "covtype")
+DATASETS=("a9a" "w8a" "real-sim" "rcv1" "covtype")
 OPTIMIZERS=("SGD"  "SARAH"  "SVRG")
 GAMMA_POWERS=($(seq -20 5))
 PRECONDS=(0 1)
 CORRUPTS=(0 1)
+SCALE=10
 
 # Create log dirs
 for dataset in "${DATASETS[@]}"; do
@@ -40,7 +41,7 @@ for dataset in "${DATASETS[@]}"; do
                     gamma="2e${gammapow}"
                     command+=" --dataset ${dataset} --optimizer ${optimizer} --gamma ${gamma}"
                     [[ $precond == 1 ]] && commands+=" --precond hutchinson"
-                    [[ $corrupt == 1 ]] && commands+=" --corrupt"
+                    [[ $corrupt == 1 ]] && commands+=" --corrupt ${SCALE}"
                     # Set up args info for log name
                     argsinfo="BS=${BS},gamma=${gamma},lam=${lam}"
                     [[ $optimizer == "L-SVRG" ]] && argsinfo+=",p=${p}"
