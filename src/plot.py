@@ -5,9 +5,11 @@ import os
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
+from math import log2
+from itertools import cycle
 
-
-from run_experiment import DATASETS, OPTIMIZERS
+from run_experiment import LOG_DIR, DATASETS, OPTIMIZERS
+MARKERS = (',', '+', '.', 'o', '*',)
 
 
 def loaddata(fname):
@@ -74,7 +76,7 @@ def unpack_args(fname):
     return dataset, optimizer, BS, gamma, lam, p, precond, beta, alpha, corrupt
 
 
-def plot_gammas():
+def plot_gammas(corrupt, precond=None):
     # plots gammas for corrupted datasets with preconditioning
     # for testing
     #DATASETS = ("a1a", "w8a")
@@ -84,51 +86,74 @@ def plot_gammas():
     data_dict = {}
     for dataset in DATASETS:
         for optimizer in OPTIMIZERS:
-            for fname in glob.glob(f"log/{dataset}_bad/{optimizer}(*precond=hutchinson*).pkl"):
-                gamma = unpack_args(fname)[3]
+            pattern = f"{LOG_DIR}/{dataset}{'_bad' if corrupt else ''}/{optimizer}(*).pkl"
+            for fname in glob.glob(pattern):
+                args = unpack_args(fname)
+                gamma = args[3]
+                if args[6] != precond:
+                    continue
+                # load data
                 data = loaddata(fname)
-                if len(data) == 0: continue
+                if len(data) == 0:
+                    print(fname, "has no data!")
+                    continue
                 if (dataset, optimizer) not in data_dict:
                     data_dict[(dataset, optimizer)] = [(data, gamma)]
                 else:
                     data_dict[(dataset, optimizer)] += [(data, gamma)]
 
+    # Prepare overall figure
     fig, axes = plt.subplots(len(OPTIMIZERS), len(DATASETS))
-    fig.set_size_inches(20, 12)
-    plt.suptitle(rf"Optimizer performance per $\gamma$ per dataset")
+    fig.set_size_inches(5*len(DATASETS), 5*len(OPTIMIZERS))
+    title = rf"Optimizer performance per $\gamma$"
+    title += " on scaled dataset" if corrupt else ""
+    title += " with preconditioning" if precond else ""
+    plt.suptitle(title)
+    markers = cycle(MARKERS)
+
+    # Go through dataset-optimzer pairs and plot their gamma-data
     for i, optimizer in enumerate(OPTIMIZERS):
         for j, dataset in enumerate(DATASETS):
             # unpack data
             if (dataset, optimizer) not in data_dict:
                 continue
             data_list = data_dict[(dataset, optimizer)]
-            for data, gamma in data_list:
-                # XXX: hack to reduce number of gammas
-                if gamma in [2**i for i in range(-20,6,2)]:
+            for data, gamma in sorted(data_list, key=lambda t: t[1]):
+                # XXX: reduce number of gammas to a third
+                if gamma not in [2**i for i in range(-20,6,3)]:
                     continue
+                # gamma legend label
+                m = next(markers)
+                gamma_p = int(log2(gamma))
+                gamma_str = rf"2^{{{gamma_p}}}"
                 axes[i,j].set_title(f"{optimizer}({dataset})")
-                axes[i,j].semilogy(data[:,0], data[:,2], label=rf"$\gamma$={gamma}")
+                axes[i,j].semilogy(data[:,0], data[:,2],
+                                   label=rf"$\gamma = {gamma_str}$", marker=m)
                 axes[i,j].set_ylabel(r"$||\nabla F(w_t)||^2$")
                 axes[i,j].set_xlabel("effective passes")
-                axes[i,j].legend()
+                axes[i,j].legend(fontsize=10, loc=1, prop={'size': 7})
 
     fig.tight_layout()
-    plt.savefig(f"plots/gammas.png")
+    plt.savefig(f"plots/gammas(corrupt={corrupt},precond={precond}).png")
 
 
-def plot_optimizers():
+def plot_optimizers(corrupt, precond):
     # for testing
     #DATASETS = ("a1a", "w8a")
     #OPTIMIZERS = ("SGD", "SARAH")
 
-    optimal_gammas = {"SGD": 0.0002, "SARAH": 0.02, "SVRG": 0.02}  # optimal gamma
+    optimal_gammas = {"SGD": 2**-10, "SARAH": 2**-6, "SVRG": 2**-6}  # optimal gamma
 
     # Gather data of gammas
     data_dict = {}
     for dataset in DATASETS:
         for optimizer in OPTIMIZERS:
             gamma = optimal_gammas[optimizer]
-            for fname in glob.glob(f"log/{dataset}_bad/{optimizer}(*gamma={gamma}*hutchinson*).pkl"):
+            pattern = f"{LOG_DIR}/{dataset}{'_bad' if corrupt else ''}/{optimizer}(*gamma={gamma}*).pkl"
+            for fname in glob.glob(pattern):
+                args = unpack_args(fname)
+                if args[6] != precond:
+                    continue
                 # assuming there is one file of such pattern
                 data = loaddata(fname)
                 if len(data) == 0: continue
@@ -138,33 +163,43 @@ def plot_optimizers():
                     data_dict[dataset] += [(data, optimizer)]
 
     fig, axes = plt.subplots(2, len(DATASETS))
-    fig.set_size_inches(20, 8)
-    plt.suptitle(rf"Optimizers performance per dataset")
+    fig.set_size_inches(5*len(DATASETS), 10)
+    plt.suptitle(rf"Optimizers performance per dataset per optimizer")
+    markers = cycle(MARKERS)
     for j, dataset in enumerate(DATASETS):
         if dataset not in data_dict:
             continue
         for data, optimizer in data_dict[dataset]:
+            m = next(markers)
             axes[0,j].set_title(dataset)
-            axes[0,j].semilogy(data[:,0], data[:,2], label=optimizer)
+            axes[0,j].semilogy(data[:,0], data[:,2], label=optimizer, marker=m)
             axes[0,j].set_ylabel(r"$||\nabla F(w_t)||^2$")
             axes[0,j].set_xlabel("effective passes")
             axes[0,j].legend()
 
             axes[1,j].set_title(dataset)
-            axes[1,j].plot(data[:,0], data[:,3], label=optimizer)
+            axes[1,j].plot(data[:,0], data[:,3], label=optimizer, marker=m)
             axes[1,j].set_ylabel("error")
             axes[1,j].set_xlabel("effective passes")
             axes[1,j].legend()
 
     fig.tight_layout()
-    plt.savefig(f"plots/optimizers.png")
+    plt.savefig(f"plots/optimizers(corrupt={corrupt},precond={precond}).png")
 
 
 def main():
     if not os.path.isdir("plots"):
         os.mkdir("plots")
-    plot_gammas()
-    plot_optimizers()
+
+    plot_gammas(False, None)
+    plot_gammas(False, "hutchinson")
+    plot_gammas(True, None)
+    plot_gammas(True, "hutchinson")
+
+    plot_optimizers(False, None)
+    plot_optimizers(False, "hutchinson")
+    plot_optimizers(True, None)
+    plot_optimizers(True, "hutchinson")
 
 if __name__ == "__main__":
     main()
