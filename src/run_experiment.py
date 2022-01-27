@@ -26,6 +26,9 @@ HYPERPARAM_GRID = product(DATASETS, OPTIMIZERS,
 
 
 def main():
+    # Give other jobs a chance to avoid conflicts
+    time.sleep(3 * random())
+    
     # Create log dirs on start up
     if not os.path.isdir(LOG_DIR):
         os.mkdir(LOG_DIR)
@@ -37,9 +40,6 @@ def main():
             os.mkdir(dataset_path + "_bad")
 
     for dataset, optimizer, BS, gamma, lam, p, precond, beta, alpha, corrupt in HYPERPARAM_GRID:
-        # Give other jobs a chance to avoid conflicts
-        time.sleep(0.1 * random())
-
         # Create log file name in a way that remembers all args
         args_str = f"BS={BS},gamma={gamma},lam={lam}"
         if optimizer == "L-SVRG":
