@@ -75,11 +75,10 @@ def unpack_args(fname):
 
 
 def plot_gammas():
-    # plot gammas for corrupted datasets with preconditioning
-    
+    # plots gammas for corrupted datasets with preconditioning
     # for testing
-    DATASETS = ("a1a", "w8a")
-    OPTIMIZERS = ("SGD", "SARAH")
+    #DATASETS = ("a1a", "w8a")
+    #OPTIMIZERS = ("SGD", "SARAH")
 
     # Gather data of gammas
     data_dict = {}
@@ -116,9 +115,10 @@ def plot_gammas():
 
 def plot_optimizers():
     # for testing
-    DATASETS = ("a1a", "w8a")
-    OPTIMIZERS = ("SGD", "SARAH")
-    optimal_gammas = {"SGD": 2, "SARAH": 2}  # optimal gamma
+    #DATASETS = ("a1a", "w8a")
+    #OPTIMIZERS = ("SGD", "SARAH")
+
+    optimal_gammas = {"SGD": 0.0002, "SARAH": 0.02, "SVRG": 0.02}  # optimal gamma
 
     # Gather data of gammas
     data_dict = {}
