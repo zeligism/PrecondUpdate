@@ -103,6 +103,9 @@ def plot_gammas():
                 continue
             data_list = data_dict[(dataset, optimizer)]
             for data, gamma in data_list:
+                # XXX: hack to reduce number of gammas
+                if gamma in [2**i for i in range(-20,6,2)]:
+                    continue
                 axes[i,j].set_title(f"{optimizer}({dataset})")
                 axes[i,j].semilogy(data[:,0], data[:,2], label=rf"$\gamma$={gamma}")
                 axes[i,j].set_ylabel(r"$||\nabla F(w_t)||^2$")
