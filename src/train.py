@@ -1,3 +1,5 @@
+# example command:
+# for i in $(seq 50); do sbatch --nodelist=cn-[01-07] --time=02:00:00 --wrap="python src/run_experiment.py"; done
 
 import time
 import argparse
