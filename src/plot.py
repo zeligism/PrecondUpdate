@@ -78,9 +78,6 @@ def unpack_args(fname):
 
 def plot_gammas(corrupt, precond=None):
     # plots gammas for corrupted datasets with preconditioning
-    # for testing
-    #DATASETS = ("a1a", "w8a")
-    #OPTIMIZERS = ("SGD", "SARAH")
 
     # Gather data of gammas
     data_dict = {}
@@ -109,7 +106,6 @@ def plot_gammas(corrupt, precond=None):
     title += " on scaled dataset" if corrupt else ""
     title += " with preconditioning" if precond else ""
     plt.suptitle(title)
-    markers = cycle(MARKERS)
 
     # Go through dataset-optimzer pairs and plot their gamma-data
     for i, optimizer in enumerate(OPTIMIZERS):
@@ -118,10 +114,9 @@ def plot_gammas(corrupt, precond=None):
             if (dataset, optimizer) not in data_dict:
                 continue
             data_list = data_dict[(dataset, optimizer)]
-            for data, gamma in sorted(data_list, key=lambda t: t[1]):
-                # XXX: reduce number of gammas to a third
-                if gamma not in [2**i for i in range(-20,6,3)]:
-                    continue
+            markers = cycle(MARKERS)
+            # XXX: hack to reduce number of gammas
+            for data, gamma in sorted(data_list, key=lambda t: t[1])[15::1]:
                 # gamma legend label
                 m = next(markers)
                 gamma_p = int(log2(gamma))
@@ -132,6 +127,7 @@ def plot_gammas(corrupt, precond=None):
                 axes[i,j].set_ylabel(r"$||\nabla F(w_t)||^2$")
                 axes[i,j].set_xlabel("Effective Passes")
                 axes[i,j].legend(fontsize=10, loc=1, prop={'size': 7})
+                axes[i,j].set_ylim(bottom=10**-15)
 
     fig.tight_layout()
     plt.savefig(f"plots/gammas(corrupt={corrupt},precond={precond is not None}).png")
@@ -142,16 +138,23 @@ def plot_optimizers(corrupt, precond):
     #DATASETS = ("a1a", "w8a")
     #OPTIMIZERS = ("SGD", "SARAH")
 
-    optimal_gammas = {"SGD": 2**-10, "SARAH": 2**-6, "SVRG": 2**-6}  # optimal gamma
+    optimal_gammas = {
+        (False, False): 2**-5,
+        (False, True): 2**-10,
+        (True, False): 2**-15,
+        (True, True): 2**-20,
+    }
 
     # Gather data of gammas
     data_dict = {}
     for dataset in DATASETS:
         for optimizer in OPTIMIZERS:
-            gamma = optimal_gammas[optimizer]
-            pattern = f"{LOG_DIR}/{dataset}{'_bad' if corrupt else ''}/{optimizer}(*gamma={gamma}*).pkl"
+            pattern = f"{LOG_DIR}/{dataset}{'_bad' if corrupt else ''}/{optimizer}(*).pkl"
             for fname in glob.glob(pattern):
                 args = unpack_args(fname)
+                gamma = optimal_gammas[(corrupt, precond is not None)]
+                if args[3] != gamma:
+                    continue
                 if args[6] != precond:
                     continue
                 # assuming there is one file of such pattern
@@ -164,17 +167,21 @@ def plot_optimizers(corrupt, precond):
 
     fig, axes = plt.subplots(2, len(DATASETS))
     fig.set_size_inches(5*len(DATASETS), 10)
-    plt.suptitle(rf"Optimizers performance per dataset per optimizer")
+    gamma_p = int(log2(gamma))
+    gamma_str = rf"2^{{{gamma_p}}}"
+    plt.suptitle(rf"Optimizers best performance ($\gamma={gamma_str}$)")
     markers = cycle(MARKERS)
     for j, dataset in enumerate(DATASETS):
         if dataset not in data_dict:
             continue
+        markers = cycle(MARKERS)
         for data, optimizer in data_dict[dataset]:
             m = next(markers)
             axes[0,j].set_title(dataset)
             axes[0,j].semilogy(data[:,0], data[:,2], label=optimizer, marker=m)
             axes[0,j].set_ylabel(r"$||\nabla F(w_t)||^2$")
             axes[0,j].set_xlabel("Effective Passes")
+            axes[0,j].set_ylim(bottom=10**-15)
             axes[0,j].legend()
 
             axes[1,j].set_title(dataset)
