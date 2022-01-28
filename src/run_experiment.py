@@ -1,3 +1,5 @@
+# example command:
+# conda activate opt; for i in $(seq 32); do sbatch -c1 --wrap="python src/run_experiment.py"; done
 
 import pickle
 import os
@@ -102,7 +104,7 @@ def main():
 
         # Run
         print(logfile)
-        #train(args)
+        train(args)
 
 if __name__ == "__main__":
     main()
