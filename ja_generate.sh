@@ -40,8 +40,8 @@ for dataset in "${DATASETS[@]}"; do
                     command="${default_run}"
                     gamma="2e${gammapow}"
                     command+=" --dataset ${dataset} --optimizer ${optimizer} --gamma ${gamma}"
-                    [[ $precond == 1 ]] && commands+=" --precond hutchinson"
-                    [[ $corrupt == 1 ]] && commands+=" --corrupt ${SCALE}"
+                    [[ $precond == 1 ]] && command+=" --precond hutchinson"
+                    [[ $corrupt == 1 ]] && command+=" --corrupt ${SCALE}"
                     # Set up args info for log name
                     argsinfo="BS=${BS},gamma=${gamma},lam=${lam}"
                     [[ $optimizer == "L-SVRG" ]] && argsinfo+=",p=${p}"
