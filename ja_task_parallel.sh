@@ -2,10 +2,10 @@
 #SBATCH --job-name=scaledvr_japarallel
 #SBATCH --output="%x-%A_%a.out"
 #SBATCH --ntasks=1
-#SBATCH --time=0:10:00
+#SBATCH --time=02:00:00
 
 completedjobs=".completedjobs"
-sync_wait=5
+sync_wait=30
 # Note: this should execute before any other job finishes
 rm -f $completedjobs
 
@@ -29,4 +29,6 @@ echo ${SLURM_ARRAY_TASK_ID} >> $completedjobs
 while (( $(wc -l < $completedjobs) < ${SLURM_ARRAY_TASK_COUNT} )); do
 	sleep ${sync_wait}
 done
+
+date
 

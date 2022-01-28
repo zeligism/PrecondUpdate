@@ -40,3 +40,5 @@ while (( $(wc -l < $completedjobs) < ${SLURM_ARRAY_TASK_COUNT} )); do
 	sleep ${sync_wait}
 done
 
+date
+
