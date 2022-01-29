@@ -16,9 +16,9 @@ def sample_z(size):
 def norm_scaled(x,D):
     return np.sqrt(np.sum(x * D * x))
 
-def initialize_D(X,y,w, BS, precond="hutchinson", N=300):
+def initialize_D(X,y,w, BS, precond="hutchinson", N=300, eps=1e-10):
     if precond == "hessian":
-        return np.diagonal(hessian(X,y,w)) + 1e-10
+        return np.diagonal(hessian(X,y,w)) + eps
     elif precond == "hutchinson":
         # grad(w+z) - grad(w) approximates H(w)z
         D = 0.
@@ -27,7 +27,7 @@ def initialize_D(X,y,w, BS, precond="hutchinson", N=300):
             i = np.random.choice(X.shape[0], BS)
             #D += z * (grad(X,y,w+z,i) - grad(X,y,w,i)) / N
             D += z * hvp(X,y,w,z,i) / N
-        return D
+        return D + eps
     else:
         return 1.
 
