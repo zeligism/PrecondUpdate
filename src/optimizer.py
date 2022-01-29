@@ -27,7 +27,8 @@ def initialize_D(X,y,w, BS, precond="hutchinson", N=300, eps=1e-10):
             i = np.random.choice(X.shape[0], BS)
             #D += z * (grad(X,y,w+z,i) - grad(X,y,w,i)) / N
             D += z * hvp(X,y,w,z,i) / N
-        return D + eps
+        D[D < eps] = eps
+        return D
     else:
         return 1.
 
