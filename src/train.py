@@ -31,7 +31,7 @@ def parse_args():
     parser.add_argument("--savefig", type=str, default=None, help="save plots under this name (default: don't save)")
     parser.add_argument("--savedata", type=str, default=None, help="save data log (default: don't save)")
 
-    parser.add_argument("--optimizer", type=str, choices=OPTIMIZERS, default="SARAH-OASIS", help="name of optimizer")
+    parser.add_argument("--optimizer", type=str, choices=OPTIMIZERS, default="SARAH", help="name of optimizer")
     parser.add_argument("-T", "--epochs", dest="T", type=int, default=5, help="number of epochs to run")
     parser.add_argument("-BS", "--batch_size", dest="BS", type=int, default=1, help="batch size")
     parser.add_argument("-lr", "--gamma", type=float, default=0.02, help="base learning rate")
