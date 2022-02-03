@@ -25,7 +25,7 @@ def initialize_D(X,y,w, BS, precond="hutchinson", N=10, eps=1e-10):
         D = 0.
         for _ in range(N):
             z = sample_z(w.shape)
-            i = np.random.choice(X.shape[0], BS)
+            i = np.random.choice(X.shape[0], BS)  # XXX
             D += z * hvp(X,y,w,z,i=None) / N
         D[D < eps] = eps
         return D
@@ -33,12 +33,13 @@ def initialize_D(X,y,w, BS, precond="hutchinson", N=10, eps=1e-10):
         return 1.
 
 
-def OASIS(X, y, T=10000, BS=1, gamma=1.0, beta=0.99, lam=0.0, alpha=1e-5):
+def OASIS(X, y, T=10000, BS=1, gamma=1.0, beta=0.99, lam=0.0, alpha=1e-5,
+          precond="hutchinson", precond_warmup=10, precond_resample=True):
     ep = 0  # count effective (full) passes through datatset
     data = []
     theta = 1e10
     w = np.zeros(X.shape[1])
-    D = initialize_D(X,y,w,BS,precond="hutchinson") + lam
+    D = initialize_D(X,y,w,BS, precond=precond, N=precond_warmup)
 
     # first step
     i = np.random.choice(X.shape[0], BS)
@@ -57,7 +58,12 @@ def OASIS(X, y, T=10000, BS=1, gamma=1.0, beta=0.99, lam=0.0, alpha=1e-5):
 
         # estimate hessian diagonal
         z = sample_z(w.shape)
-        D_est = z * hvp(X,y,w,z,i) + lam
+        if precond_resample:
+            j = np.random.choice(X.shape[0], BS)
+            ep += BS / X.shape[0]
+        else:
+            j = i
+        D_est = z * hvp(X,y,w,z,j) + lam
         D = np.abs(beta * D + (1-beta) * D_est)
         D[D < alpha] = alpha
 
@@ -78,11 +84,12 @@ def OASIS(X, y, T=10000, BS=1, gamma=1.0, beta=0.99, lam=0.0, alpha=1e-5):
     return w, np.array(data)
 
 
-def SGD(X, y, T=10000, BS=1, gamma=0.0002, beta=0.999, lam=0.0, alpha=1e-5, precond="hutchinson"):
+def SGD(X, y, T=10000, BS=1, gamma=0.0002, beta=0.999, lam=0.0, alpha=1e-5,
+        precond="hutchinson", precond_warmup=10, precond_resample=True):
     ep = 0  # count effective (full) passes through datatset
     data = []
     w = np.zeros(X.shape[1])
-    D = initialize_D(X,y,w,BS,precond=precond) + lam
+    D = initialize_D(X,y,w,BS, precond=precond, N=precond_warmup)
 
     for it in range(T * (X.shape[0] // BS)):
         # Calculate gradients
@@ -97,7 +104,11 @@ def SGD(X, y, T=10000, BS=1, gamma=0.0002, beta=0.999, lam=0.0, alpha=1e-5, prec
         elif precond == "hutchinson":
             # estimate hessian diagonal
             z = sample_z(w.shape)
-            j = i
+            if precond_resample:
+                j = np.random.choice(X.shape[0], BS)
+                ep += BS / X.shape[0]
+            else:
+                j = i
             D_est = z * hvp(X,y,w,z,j) + lam
             D = np.abs(beta * D + (1-beta) * D_est)
             D[D < alpha] = alpha
@@ -112,11 +123,12 @@ def SGD(X, y, T=10000, BS=1, gamma=0.0002, beta=0.999, lam=0.0, alpha=1e-5, prec
     return w, np.array(data)
 
 
-def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond="hutchinson"):
+def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
+          precond="hutchinson", precond_warmup=10, precond_resample=True):
     ep = 0  # count effective (full) passes through datatset
     data = []
     wn = np.zeros(X.shape[1])
-    D = initialize_D(X,y,wn,BS,precond=precond) + lam
+    D = initialize_D(X,y,wn,BS, precond=precond, N=precond_warmup)
 
     for epoch in range(T):
         v = grad(X,y,wn,lam=lam)
@@ -140,7 +152,11 @@ def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond=
             elif precond == "hutchinson":
                 # estimate hessian diagonal
                 z = sample_z(wn.shape)
-                j = np.random.choice(X.shape[0], BS)
+                if precond_resample:
+                    j = np.random.choice(X.shape[0], BS)
+                    ep += BS / X.shape[0]
+                else:
+                    j = i
                 D_est = z * hvp(X,y,wn,z,j) + lam
                 D = np.abs(beta * D + (1-beta) * D_est)
                 D[D < alpha] = alpha
@@ -160,11 +176,12 @@ def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond=
     return wn, np.array(data)
 
 
-def SVRG(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond=None):
+def SVRG(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
+         precond="hutchinson", precond_warmup=10, precond_resample=True):
     ep = 0  # count effective (full) passes through datatset
     data = []
     w_out = np.zeros(X.shape[1])
-    D = initialize_D(X,y,w_out,BS,precond=precond) + lam
+    D = initialize_D(X,y,w_out,BS, precond=precond, N=precond_warmup)
 
     for epoch in range(T):
         g_full = grad(X,y,w_out,lam=lam)
@@ -187,7 +204,11 @@ def SVRG(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond=N
             elif precond == "hutchinson":
                 # estimate hessian diagonal
                 z = sample_z(w_in.shape)
-                j = i
+                if precond_resample:
+                    j = np.random.choice(X.shape[0], BS)
+                    ep += BS / X.shape[0]
+                else:
+                    j = i
                 D_est = z * hvp(X,y,w_in,z,j) + lam
                 D = np.abs(beta * D + (1-beta) * D_est)
                 D[D < alpha] = alpha
@@ -208,11 +229,12 @@ def SVRG(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond=N
     return w_in, np.array(data)
 
 
-def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, precond=None, p=0.99):
+def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, p=0.99,
+           precond="hutchinson", precond_warmup=10, precond_resample=True):
     ep = 0  # count effective (full) passes through datatset
     data = []
     w_out = np.zeros(X.shape[1])
-    D = initialize_D(X,y,w_out,BS,precond=precond) + lam
+    D = initialize_D(X,y,w_out,BS,precond=precond)
 
     w_in = w_out[:]
     g_full = grad(X,y,w_out,lam=lam)
@@ -233,7 +255,11 @@ def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, prec
         elif precond == "hutchinson":
             # estimate hessian diagonal
             z = sample_z(w_in.shape)
-            j = i #np.random.choice(X.shape[0], BS)
+            if precond_resample:
+                j = np.random.choice(X.shape[0], BS)
+                ep += BS / X.shape[0]
+            else:
+                j = i
             D_est = z * hvp(X,y,w_in,z,j) + lam
             D = np.abs(beta * D + (1-beta) * D_est)
             D[D < alpha] = alpha
