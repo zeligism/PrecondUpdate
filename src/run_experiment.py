@@ -1,5 +1,3 @@
-# example command:
-# conda activate opt; for i in $(seq 32); do sbatch -c1 --wrap="python src/run_experiment.py"; done
 
 import pickle
 import os
@@ -37,7 +35,7 @@ elif EXPERIMENT == 2:
     PRECONDS = (None, "hutchinson")
     BETAS = (0.999,)
     ALPHAS = (1e-7,)
-    CORRUPT = (None, [-5,0], [5,0])
+    CORRUPT = (None, [-5,0], [0,5])
 
 HYPERPARAM_GRID = product(DATASETS,
                           OPTIMIZERS,
@@ -50,7 +48,6 @@ HYPERPARAM_GRID = product(DATASETS,
                           ALPHAS,
                           CORRUPT,
                           )
-
 
 def main():
     # Give other jobs a chance to avoid conflicts
@@ -108,3 +105,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
