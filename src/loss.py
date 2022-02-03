@@ -1,23 +1,43 @@
 
-import scipy
 import numpy as np
+from scipy import sparse
 from numba import njit
 
-@njit
-def logistic_loss_jit(X,y,w):
-    pass
+NUMBA = False
+SMALL = 1e-4
+
+def slice(X,y,i):
+    if i is None:
+        return X, y
+    if isinstance(i, int):
+        i = [i]
+    return X[i,:], y[i]
+
 
 @njit
-def logistic_loss_grad_jit(X,y,w):
-    pass
+def logistic_loss_njit(X,iX,jX,y,w):
+    raise NotImplementedError()
 
-def logistic_loss(X,y,w):
+@njit
+def logistic_loss_grad_njit(X,iX,jX,y,w):
+    raise NotImplementedError()
+
+@njit
+def logistic_loss_hessian_njit(X,iX,jX,y,w):
+    raise NotImplementedError()
+
+@njit
+def logistic_loss_hvp_njit(X,iX,jX,y,w,v):
+    raise NotImplementedError()
+
+
+def logistic_loss(X,y,w, M=25):
     t = -y * (X @ w)
     # large enough x approximates log(1+e^x) very well
     # e.g. when x > 23, log(1+e^x) - x < 1e-10
     loss = t*0.0
-    loss[t > 20] = t[t > 20]
-    loss[t <= 20] = np.log(1 + np.exp(t[t <= 20]))
+    loss[t > M] = t[t > M]
+    loss[t <= M] = np.log(1 + np.exp(t[t <= M]))
     return np.mean(loss)
 
 def logistic_loss_grad(X,y,w):
@@ -27,7 +47,7 @@ def logistic_loss_grad(X,y,w):
     en = np.exp(-t[t >= 0])
     r[t <  0] = ep / (1 + ep)
     r[t >= 0] = 1 / (1 + en)
-    grad = X.T.dot(-y * r) / X.shape[0]
+    grad = X.T @ (-y * r) / X.shape[0]
     return grad
 
 def logistic_loss_hessian(X,y,w):
@@ -37,8 +57,8 @@ def logistic_loss_hessian(X,y,w):
     en = np.exp(-t[t >= 0])
     r[t <  0] = ep / (1 + ep)**2
     r[t >= 0] = en / (1 + en)**2
-    hessian = X.T.dot(r.reshape(-1,1) * X) / X.shape[0]
-    return hessian
+    H = X.T @ X.multiply(r.reshape(-1,1)) / X.shape[0]
+    return H
 
 def logistic_loss_hvp(X,y,w,v):
     t = -y * (X @ w)
@@ -49,43 +69,30 @@ def logistic_loss_hvp(X,y,w,v):
     r[t >= 0] = en / (1 + en)**2
     # HVP
     # r_n x_nd1 x_nd2 v_d2 = H_d1d2 v_d2 = hvp_d1
-    hvp = np.einsum("n,ni,nj,j->i",r,X,X,v) / X.shape[0]
-    return hvp
+    #Hvp = np.einsum("n,ni,nj,j->i",r,X,X,v) / X.shape[0]  # requires X.todense()
+    Hvp = X.T @ (X.multiply(r.reshape(-1,1)) @ v) / X.shape[0]
+    return Hvp
 
 
-def F(X, y, w, i=None):
-    if i is not None:
-        if isinstance(i, int):
-            i = [i]
-        y = y[i]
-        X = X[i,:]
-    return logistic_loss(X,y,w)
+def F(X, y, w, i=None, lam=0.0):
+    X, y = slice(X,y,i)
+    F = logistic_loss(X,y,w)
+    return F + lam * np.linalg.norm(w)**2
 
 def grad(X, y, w, i=None, lam=0.0):
-    if i is not None:
-        if isinstance(i, int):
-            i = [i]
-        y = y[i]
-        X = X[i,:]
-    return logistic_loss_grad(X,y,w) + lam * w
+    X, y = slice(X,y,i)
+    g = logistic_loss_grad(X,y,w)
+    return g + lam * w
 
-def hessian(X, y, w, i=None):
-    if i is not None:
-        if isinstance(i, int):
-            i = [i]
-        y = y[i]
-        X = X[i,:]
-    X = np.array(X.todense()) # for element-wise prod
-    return logistic_loss_hessian(X,y,w)
+def hessian(X, y, w, i=None, lam=0.0):
+    X, y = slice(X,y,i)
+    H = logistic_loss_hessian(X,y,w)
+    return H + lam
 
-def hvp(X, y, w, v, i=None):
-    if i is not None:
-        if isinstance(i, int):
-            i = [i]
-        y = y[i]
-        X = X[i,:]
-    X = np.array(X.todense()) # for element-wise prod
-    return logistic_loss_hvp(X,y,w,v)
+def hvp(X, y, w, v, i=None, lam=0.0):
+    X, y = slice(X,y,i)
+    Hvp = logistic_loss_hvp(X,y,w,v)
+    return Hvp + lam * v
 
 
 def test_logistic(X,y,w):
@@ -112,22 +119,21 @@ def test_logistic(X,y,w):
     Hvp_torch = torch.autograd.functional.hvp(F_torch, w, v)[1]
     # check
     print(L.sum(), "≈", L_torch.sum().item())
-    assert np.abs(L.sum() - L_torch.sum().item()) < 1e-4
+    assert np.abs(L.sum() - L_torch.sum().item()) < SMALL
     print(G.sum(), "≈", G_torch.sum().item())
-    assert np.abs(G.sum() - G_torch.sum().item()) < 1e-4
+    assert np.abs(G.sum() - G_torch.sum().item()) < SMALL
     print(H.sum(), "≈", H_torch.sum().item())
-    assert np.abs(H.sum() - H_torch.sum().item()) < 1e-4
+    assert np.abs(H.sum() - H_torch.sum().item()) < SMALL
     print(Hvp.sum(), "≈", Hvp_torch.sum().item())
-    assert np.abs(Hvp.sum() - Hvp_torch.sum().item()) < 1e-4
+    assert np.abs(Hvp.sum() - Hvp_torch.sum().item()) < SMALL
 
 
 if __name__ == "__main__":
-    n, d = (500, 50)
+    n, d = (472, 48)
     X = np.random.randn(n,d)
-    y = np.random.randn(d)
-    w = np.random.randn(d)
-    test_logistic(X,y,w)
-    w = 10*np.random.rand(d)
-    test_logistic(X,y,w)
+    X = sparse.csr_matrix(X)
+    y = 2 * np.random.randint(0,2,[n]) - 1
+    test_logistic(X,y,np.random.randn(d))
+    test_logistic(X,y,np.random.rand(d))
     print("Success!")
 

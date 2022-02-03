@@ -12,6 +12,7 @@ from sklearn.datasets import load_svmlight_file
 from sklearn.preprocessing import normalize
 
 from optimizer import *
+from plot_utils import *
 
 mem = Memory("./mycache")
 DATASET_DIR = "datasets"
@@ -31,15 +32,17 @@ def parse_args():
     parser.add_argument("--savefig", type=str, default=None, help="save plots under this name (default: don't save)")
     parser.add_argument("--savedata", type=str, default=None, help="save data log (default: don't save)")
 
-    parser.add_argument("--optimizer", type=str, choices=OPTIMIZERS, default="SARAH-OASIS", help="name of optimizer")
+    parser.add_argument("--optimizer", type=str, choices=OPTIMIZERS, default="SARAH", help="name of optimizer")
     parser.add_argument("-T", "--epochs", dest="T", type=int, default=5, help="number of epochs to run")
     parser.add_argument("-BS", "--batch_size", dest="BS", type=int, default=1, help="batch size")
     parser.add_argument("-lr", "--gamma", type=float, default=0.02, help="base learning rate")
     parser.add_argument("--alpha", type=float, default=1e-5, help="min value of diagonal of hessian estimate")
     parser.add_argument("--beta", type=float, default=0.999, help="adaptive rate of hessian estimate")
     parser.add_argument("--lam", type=float, default=0., help="regularization coefficient")
-    parser.add_argument("--precond", type=str.lower, default=None, help="Diagonal preconditioning method (default: none)")
     parser.add_argument("-p", "--update-p", dest="p", type=float, default=0.99, help="probability of updating checkpoint in L-SVRG")
+    parser.add_argument("--precond", type=str.lower, default=None, help="Diagonal preconditioning method (default: none)")
+    parser.add_argument("--precond_warmup", type=int, default=10, help="Number of samples for initializing diagonal estimate")
+    parser.add_argument("--precond_resample", action="store_true", help="Resample batch for preconditioning")
 
     # Parse command line args
     args = parser.parse_args()
@@ -55,33 +58,6 @@ def corrupt_scale(X, k_min=-3, k_max=3):
     bad_scale = 10**np.linspace(k_min, k_max, X.shape[1])
     np.random.shuffle(bad_scale)
     return X[:].multiply(bad_scale.reshape(1,-1)).tocsr()
-
-
-def savefig(data, fname, title="Loss, gradient norm squared, and error"):
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
-    fig.set_size_inches(20, 6)
-    plt.suptitle(title)
-
-    ax1.plot(data[:,0], data[:,1])
-    ax1.set_ylabel(r"$F(w_t)$")
-    ax1.set_xlabel("effective passes")
-    ax1.grid()
-
-    ax2.semilogy(data[:,0], data[:,2])
-    ax2.set_ylabel(r"$||\nabla F(w_t)||^2$")
-    ax2.set_xlabel("effective passes")
-    ax2.grid()
-
-    ax3.plot(data[:,0], data[:,3])
-    ax3.set_ylabel(r"error")
-    ax3.set_xlabel("effective passes")
-    ax3.grid()
-
-    if fname is None:
-        plt.show()
-    else:
-        plt.savefig(fname)
-        plt.close()
 
 
 def savedata(data, fname):
@@ -106,26 +82,29 @@ def train(args):
 
     if args.corrupt is not None:
         print("Corrupting scale of data.")
-        if len(args.corrupt) == 2:
-            X = corrupt_scale(X, args.corrupt[0], args.corrupt[1])
+        if len(args.corrupt) == 0:
+            args.corrupt = (-1,1)
         elif len(args.corrupt) == 1:
-            X = corrupt_scale(X, -args.corrupt[0], args.corrupt[0])
-        else:
-            X = corrupt_scale(X)
+            args.corrupt = (-args.corrupt[0], args.corrupt[0])
+        X = corrupt_scale(X, args.corrupt[0], args.corrupt[1])
 
     print(f"Running {args.optimizer}...")
-    kwargs = dict(T=args.T, BS=args.BS, gamma=args.gamma,
-                  beta=args.beta, lam=args.lam, alpha=args.alpha)
+    kwargs = dict(T=args.T, BS=args.BS,
+                  gamma=args.gamma, beta=args.beta,
+                  lam=args.lam, alpha=args.alpha,
+                  precond=args.precond,
+                  precond_warmup=args.precond_warmup,
+                  precond_resample=args.precond_resample)
     if args.optimizer == "SGD":
-        wopt, data = SGD(X, y, **kwargs, precond=args.precond)
+        wopt, data = SGD(X, y, **kwargs)
     elif args.optimizer == "SARAH":
-        wopt, data = SARAH(X, y, **kwargs, precond=args.precond)
+        wopt, data = SARAH(X, y, **kwargs)
     elif args.optimizer == "OASIS":
         wopt, data = OASIS(X, y, **kwargs)
     elif args.optimizer == "SVRG":
-        wopt, data = SVRG(X, y, **kwargs, precond=args.precond)
+        wopt, data = SVRG(X, y, **kwargs)
     elif args.optimizer == "L-SVRG":
-        wopt, data = L_SVRG(X, y, **kwargs, precond=args.precond, p=args.p)
+        wopt, data = L_SVRG(X, y, **kwargs, p=args.p)
     else:
         raise NotImplementedError(f"Optimizer '{args.optimizer}' not implemented yet.")
     print("Done.")
@@ -136,9 +115,11 @@ def train(args):
         if args.optimizer == "L-SVRG":
             title += f", p={args.p}"
         if args.precond is not None:
-            title += rf", precond={args.precond}"
+            title += f", precond={args.precond}"
         if args.precond == "hutchinson":
             title += rf", $\beta$={args.beta}, $\alpha$={args.alpha}"
+        if args.corrupt is not None:
+            title += f", corrupt=[{args.corrupt[0]}, {args.corrupt[1]}]"
         print(f"Saving plot to '{args.savefig}'.")
         savefig(data, args.savefig, title=title)
 

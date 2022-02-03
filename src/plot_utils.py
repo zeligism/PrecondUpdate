@@ -9,8 +9,18 @@ from math import log2
 from itertools import cycle
 
 from run_experiment import LOG_DIR, DATASETS, OPTIMIZERS
-MARKERS = (',', '+', '.', 'o', '*',)
 
+MARKERS = (',', '+', '.', 'o', '*', "D")
+OPTIMAL_GAMMAS = {
+    (None, False): 2**-5,
+    ("[-3-0]", False): 2**-10,
+    ("[0-3]", False): 2**-10,
+    ("[-3-3]", False): 2**-10,
+    (None, True): 2**-15,
+    ("[-3-0]", True): 2**-10,
+    ("[0-3]", True): 2**-10,
+    ("[-3-3]", True): 2**-10,
+}
 
 def loaddata(fname):
     with open(fname, 'rb') as f:
@@ -36,7 +46,7 @@ def savefig(data, fname, title="Loss, gradient norm squared, and error"):
     ax3.set_ylabel("Error")
     ax3.set_xlabel("Effective Passes")
     ax3.grid()
-    
+
     if fname is None:
         plt.show()
     else:
@@ -46,15 +56,7 @@ def savefig(data, fname, title="Loss, gradient norm squared, and error"):
 def unpack_args(fname):
     # unpack path
     dirname, logname = os.path.split(fname)
-    logdir, datasetname = os.path.split(dirname)
-    # check if corrupted dataset
-    bad_index = datasetname.find("_bad")
-    if bad_index != -1:
-        dataset = datasetname[:bad_index]
-        corrupt = []  # default
-    else:
-        dataset = datasetname
-        corrupt = None
+    logdir, dataset = os.path.split(dirname)
     # parse args
     optimizer, argstr = logname.split("(")
     argstr, _ = argstr.split(")")  # remove ').pkl'
@@ -63,7 +65,7 @@ def unpack_args(fname):
     gamma = float(args["gamma"])
     lam = float(args["lam"])
     p = 0.99 if "p" not in args else args["p"]
-    if "precond" in args:        
+    if "precond" in args:
         precond = args["precond"]
         beta = float(args["beta"])
         alpha = float(args["alpha"])
@@ -72,6 +74,7 @@ def unpack_args(fname):
         # any random floats would do
         beta = 0.999
         alpha = 1e-5
+    corrupt = None if "corrupt" not in args else args["corrupt"]
 
     return dataset, optimizer, BS, gamma, lam, p, precond, beta, alpha, corrupt
 
@@ -83,11 +86,12 @@ def plot_gammas(corrupt, precond=None):
     data_dict = {}
     for dataset in DATASETS:
         for optimizer in OPTIMIZERS:
-            pattern = f"{LOG_DIR}/{dataset}{'_bad' if corrupt else ''}/{optimizer}(*).pkl"
+            pattern = f"{LOG_DIR}/{dataset}/{optimizer}(*).pkl"
             for fname in glob.glob(pattern):
                 args = unpack_args(fname)
                 gamma = args[3]
-                if args[6] != precond:
+                if args[4] != 0.0: continue
+                if args[6] != precond or args[9] != corrupt:
                     continue
                 # load data
                 data = loaddata(fname)
@@ -116,7 +120,7 @@ def plot_gammas(corrupt, precond=None):
             data_list = data_dict[(dataset, optimizer)]
             markers = cycle(MARKERS)
             # XXX: hack to reduce number of gammas
-            for data, gamma in sorted(data_list, key=lambda t: t[1])[15::1]:
+            for data, gamma in sorted(data_list, key=lambda t: t[1]):
                 # gamma legend label
                 m = next(markers)
                 gamma_p = int(log2(gamma))
@@ -127,35 +131,27 @@ def plot_gammas(corrupt, precond=None):
                 axes[i,j].set_ylabel(r"$||\nabla F(w_t)||^2$")
                 axes[i,j].set_xlabel("Effective Passes")
                 axes[i,j].legend(fontsize=10, loc=1, prop={'size': 7})
-                axes[i,j].set_ylim(bottom=10**-15)
+                #axes[i,j].set_ylim(bottom=10**-15)
 
     fig.tight_layout()
     plt.savefig(f"plots/gammas(corrupt={corrupt},precond={precond is not None}).png")
 
 
 def plot_optimizers(corrupt, precond):
-    # for testing
-    #DATASETS = ("a1a", "w8a")
-    #OPTIMIZERS = ("SGD", "SARAH")
 
-    optimal_gammas = {
-        (False, False): 2**-5,
-        (False, True): 2**-10,
-        (True, False): 2**-15,
-        (True, True): 2**-20,
-    }
+    gamma = OPTIMAL_GAMMAS[(corrupt, precond is not None)]
 
     # Gather data of gammas
     data_dict = {}
     for dataset in DATASETS:
         for optimizer in OPTIMIZERS:
-            pattern = f"{LOG_DIR}/{dataset}{'_bad' if corrupt else ''}/{optimizer}(*).pkl"
+            pattern = f"{LOG_DIR}/{dataset}/{optimizer}(*).pkl"
             for fname in glob.glob(pattern):
                 args = unpack_args(fname)
-                gamma = optimal_gammas[(corrupt, precond is not None)]
                 if args[3] != gamma:
                     continue
-                if args[6] != precond:
+                if args[4] != 0.0: continue
+                if args[6] != precond or args[9] != corrupt:
                     continue
                 # assuming there is one file of such pattern
                 data = loaddata(fname)
@@ -181,7 +177,7 @@ def plot_optimizers(corrupt, precond):
             axes[0,j].semilogy(data[:,0], data[:,2], label=optimizer, marker=m)
             axes[0,j].set_ylabel(r"$||\nabla F(w_t)||^2$")
             axes[0,j].set_xlabel("Effective Passes")
-            axes[0,j].set_ylim(bottom=10**-15)
+            #axes[0,j].set_ylim(bottom=10**-15)
             axes[0,j].legend()
 
             axes[1,j].set_title(dataset)
@@ -198,15 +194,19 @@ def main():
     if not os.path.isdir("plots"):
         os.mkdir("plots")
 
-    plot_gammas(False, None)
-    plot_gammas(False, "hutchinson")
-    plot_gammas(True, None)
-    plot_gammas(True, "hutchinson")
+    plot_gammas(None, None)
+    plot_gammas("[-5-0]", None)
+    plot_gammas("[0-5]", None)
+    plot_gammas(None, "hutchinson")
+    plot_gammas("[-5-0]", "hutchinson")
+    plot_gammas("[0-5]", "hutchinson")
 
-    plot_optimizers(False, None)
-    plot_optimizers(False, "hutchinson")
-    plot_optimizers(True, None)
-    plot_optimizers(True, "hutchinson")
+    plot_optimizers(None, None)
+    plot_optimizers("[-5-0]", None)
+    plot_optimizers("[0-5]", None)
+    plot_optimizers(None, "hutchinson")
+    plot_optimizers("[-5-0]", "hutchinson")
+    plot_optimizers("[0-5]", "hutchinson")
 
 if __name__ == "__main__":
     main()
