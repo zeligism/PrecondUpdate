@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=scaledvr_japarallel
 #SBATCH --output="%x-%A_%a.out"
-#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
 #SBATCH --time=02:00:00
 
 completedjobs=".completedjobs"
@@ -20,7 +20,9 @@ END=$(( $START + $NRUNS - 1 ))
 END=$(( $END <= ${LAST_JOB} ? $END : ${LAST_JOB} ))
 
 echo "Running jobs from file: '${JA_FILE}'"
-sed -n "${START},${END}p;${END}q" "${JA_FILE}" | parallel -j$NRUNS {}
+sed -n "${START},${END}p;${END}q" "${JA_FILE}" | parallel -j${SLURM_CPUS_PER_TASK} {}
+
+date
 
 # hack to make sure all jobs finish before job scripts finishes
 # this is because there seems to be a glitch in the current SLURM system
@@ -30,5 +32,4 @@ while (( $(wc -l < $completedjobs) < ${SLURM_ARRAY_TASK_COUNT} )); do
 	sleep ${sync_wait}
 done
 
-date
 

@@ -32,6 +32,8 @@ for (( run=$START; run<=END; run++ )); do
 	echo "========== job $run end"
 done
 
+date
+
 # hack to make sure all jobs finish before job scripts finishes
 # this is because there seems to be a glitch in the current SLURM system
 # that kills the remaining jobs in the array as soon as a single job finishes
@@ -40,5 +42,4 @@ while (( $(wc -l < $completedjobs) < ${SLURM_ARRAY_TASK_COUNT} )); do
 	sleep ${sync_wait}
 done
 
-date
 
