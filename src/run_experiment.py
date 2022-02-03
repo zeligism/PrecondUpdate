@@ -7,16 +7,16 @@ import time
 from argparse import Namespace
 from itertools import product
 from random import random
-from train import train
+from train import *
 
 SEED = 123
-T = 20
+T = 30
 LOG_DIR = "logs"
-EXPERIMENT = 2
+EXPERIMENT = 3
 
 if EXPERIMENT == 1:
     #DATASETS = ("covtype", "ijcnn1", "news20", "rcv1",)
-    DATASETS = ("a9a", "rcv1", "covtype", "real-sim", "w8a",)
+    DATASETS = ("a9a",  "w8a", "rcv1", "covtype", "real-sim",)
     OPTIMIZERS = ("SGD", "SARAH", "SVRG",)
     BATCH_SIZES = (10,)
     GAMMAS = (2**i for i in range(-20,6))
@@ -25,7 +25,9 @@ if EXPERIMENT == 1:
     PRECONDS = (None, "hutchinson")
     BETAS = (0.999,)
     ALPHAS = (1e-5,)
-    CORRUPT = (None, [])  # empty list means use default
+    CORRUPT = (None, [-3,3])
+    PRECOND_RESAMPLES = (True,)
+    PRECOND_WARMUPS = (10,)
 
 elif EXPERIMENT == 2:
     DATASETS = ("a9a", "real-sim", "w8a",)
@@ -37,7 +39,39 @@ elif EXPERIMENT == 2:
     PRECONDS = (None, "hutchinson")
     BETAS = (0.999,)
     ALPHAS = (1e-7,)
-    CORRUPT = (None, [-5,0], [5,0])
+    CORRUPT = (None, [-5,0], [0,5])
+    PRECOND_RESAMPLES = (True,)
+    PRECOND_WARMUPS = (10,)
+
+elif EXPERIMENT == 3:
+    LOG_DIR = "logs3"
+    DATASETS = ("a9a",  "w8a", "rcv1", "real-sim",)
+    OPTIMIZERS = ("SGD", "SARAH", "L-SVRG")
+    BATCH_SIZES = (128,)
+    GAMMAS = (2**i for i in range(-25,5,3))
+    LAMBDAS = (0.0,)
+    PS = (0.99,)
+    PRECONDS = (None, "hutchinson")
+    BETAS = (0.999,0.9999)
+    ALPHAS = (1e-7,)
+    CORRUPT = (None, [-3,0], [0,3], [-3,3])
+    PRECOND_RESAMPLES = (True,)
+    PRECOND_WARMUPS = (10,)
+
+elif EXPERIMENT == 4:
+    LOG_DIR = "logs4"
+    DATASETS = ("a9a",  "w8a", "rcv1", "real-sim",)
+    OPTIMIZERS = ("SGD", "SARAH", "L-SVRG")
+    BATCH_SIZES = (128,)
+    GAMMAS = (2**i for i in range(-25,5,3))
+    LAMBDAS = (0.0,)
+    PS = (0.99,)
+    PRECONDS = ("hutchinson",)
+    BETAS = (0.9999,)
+    ALPHAS = (1e-7,)
+    CORRUPT = ([-2,5], [-6,3])
+    PRECOND_RESAMPLES = (False, True)
+    PRECOND_WARMUPS = (1,2,4,8)
 
 HYPERPARAM_GRID = product(DATASETS,
                           OPTIMIZERS,
@@ -49,7 +83,13 @@ HYPERPARAM_GRID = product(DATASETS,
                           BETAS,
                           ALPHAS,
                           CORRUPT,
+                          PRECOND_RESAMPLES,
+                          PRECOND_WARMUPS,
                           )
+
+# This ensures that faster jobs finish earlier
+HYPERPARAM_GRID = list(HYPERPARAM_GRID)
+np.random.shuffle(HYPERPARAM_GRID)
 
 
 def main():
@@ -64,7 +104,8 @@ def main():
         if not os.path.isdir(dataset_path):
             os.mkdir(dataset_path)
 
-    for dataset, optimizer, BS, gamma, lam, p, precond, beta, alpha, corrupt in HYPERPARAM_GRID:
+    for dataset, optimizer, BS, gamma, lam, p,\
+        precond, beta, alpha, corrupt, precond_resample, precond_warmup in HYPERPARAM_GRID:
         # Create log file name in a way that remembers all args
         args_str = f"BS={BS},gamma={gamma},lam={lam}"
         if optimizer == "L-SVRG":
@@ -73,8 +114,9 @@ def main():
             args_str += f",precond={precond}"
         if precond == "hutchinson":
             args_str += f",beta={beta},alpha={alpha}"
+            args_str += f",precond_resample={precond_resample},precond_warmup={precond_warmup}"
         if corrupt is not None:
-            args_str += f",corrupt={tuple(corrupt)}"
+            args_str += f",corrupt=[{corrupt[0]}-{corrupt[1]}]"
 
         # log file is {LOG_DIR}/dataset/optimizer(arg1=val1,...,argN=valN).pkl
         logfile = os.path.join(LOG_DIR, dataset, f"{optimizer}({args_str}).pkl")
@@ -97,6 +139,8 @@ def main():
                          lam=lam,
                          optimizer=optimizer,
                          precond=precond,
+                         precond_warmup=precond_warmup,
+                         precond_resample=precond_resample,
                          p=p,
                          savedata=logfile,
                          savefig=None,
