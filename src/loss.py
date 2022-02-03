@@ -70,7 +70,7 @@ def logistic_loss_hvp(X,y,w,v):
     # HVP
     # r_n x_nd1 x_nd2 v_d2 = H_d1d2 v_d2 = hvp_d1
     #hvp = np.einsum("n,ni,nj,j->i",r,X,X,v) / X.shape[0]
-    Hvp = X.T @ X.multiply(r.reshape(-1,1)) @ v / X.shape[0]
+    Hvp = X.T @ (X.multiply(r.reshape(-1,1)) @ v) / X.shape[0]
     return Hvp
 
 
