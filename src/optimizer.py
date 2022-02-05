@@ -234,7 +234,7 @@ def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, p=0.
     ep = 0  # count effective (full) passes through datatset
     data = []
     w_out = np.zeros(X.shape[1])
-    D = initialize_D(X,y,w_out,BS,precond=precond)
+    D = initialize_D(X,y,w_out,BS, precond=precond, N=precond_warmup)
 
     w_in = w_out[:]
     g_full = grad(X,y,w_out,lam=lam)
