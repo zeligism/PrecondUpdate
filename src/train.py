@@ -12,7 +12,7 @@ from sklearn.datasets import load_svmlight_file
 from sklearn.preprocessing import normalize
 
 from optimizer import *
-from plot_utils import *
+from plot import *
 
 mem = Memory("./mycache")
 DATASET_DIR = "datasets"
@@ -36,13 +36,14 @@ def parse_args():
     parser.add_argument("-T", "--epochs", dest="T", type=int, default=5, help="number of epochs to run")
     parser.add_argument("-BS", "--batch_size", dest="BS", type=int, default=1, help="batch size")
     parser.add_argument("-lr", "--gamma", type=float, default=0.02, help="base learning rate")
-    parser.add_argument("--alpha", type=float, default=1e-5, help="min value of diagonal of hessian estimate")
-    parser.add_argument("--beta", type=float, default=0.999, help="adaptive rate of hessian estimate")
+    parser.add_argument("--alpha", type=float, default=0.0, help="min value of diagonal of hessian estimate")
+    parser.add_argument("--beta", type=float, default=0.99, help="adaptive rate of hessian estimate")
     parser.add_argument("--lam", type=float, default=0., help="regularization coefficient")
     parser.add_argument("-p", "--update-p", dest="p", type=float, default=0.99, help="probability of updating checkpoint in L-SVRG")
     parser.add_argument("--precond", type=str.lower, default=None, help="Diagonal preconditioning method (default: none)")
-    parser.add_argument("--precond_warmup", type=int, default=10, help="Number of samples for initializing diagonal estimate")
+    parser.add_argument("--precond_warmup", type=int, default=1, help="Number of samples for initializing diagonal estimate")
     parser.add_argument("--precond_resample", action="store_true", help="Resample batch for preconditioning")
+    parser.add_argument("--precond_zsamples", type=int, default=1, help="Number of z samples")
 
     # Parse command line args
     args = parser.parse_args()
@@ -94,7 +95,9 @@ def train(args):
                   lam=args.lam, alpha=args.alpha,
                   precond=args.precond,
                   precond_warmup=args.precond_warmup,
-                  precond_resample=args.precond_resample)
+                  precond_resample=args.precond_resample,
+                  precond_zsamples=args.precond_zsamples,
+                  )
     if args.optimizer == "SGD":
         wopt, data = SGD(X, y, **kwargs)
     elif args.optimizer == "SARAH":
@@ -111,7 +114,10 @@ def train(args):
 
     if args.savefig is not None:
         # Create title
-        title = rf"{args.optimizer} with BS={args.BS}, $\gamma$={args.gamma}, $\lambda$={args.lam}"
+        title = rf"{args.optimizer}({os.path.basename(args.dataset)})"
+        title += rf" with BS={args.BS}, $\gamma$={args.gamma}"
+        if args.lam != 0.0:
+            title += rf", $\lambda$={args.lam}"
         if args.optimizer == "L-SVRG":
             title += f", p={args.p}"
         if args.precond is not None:
