@@ -9,3 +9,5 @@ source activate opt # assuming conda env 'opt' exists
 
 srun python src/run_experiment.py
 
+date
+
