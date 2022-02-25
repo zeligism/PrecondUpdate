@@ -1,5 +1,6 @@
 
 import numpy as np
+import torch
 from scipy import sparse
 from numba import njit
 
@@ -33,7 +34,7 @@ def logistic_loss_hvp_njit(X,iX,jX,y,w,v):
 
 def logistic_loss(X,y,w, M=25):
     t = -y * (X @ w)
-    # large enough x approximates log(1+e^x) very well
+    # x approximates log(1+e^x) well for large x
     # e.g. when x > 23, log(1+e^x) - x < 1e-10
     loss = t*0.0
     loss[t > M] = t[t > M]
@@ -59,6 +60,16 @@ def logistic_loss_hessian(X,y,w):
     r[t >= 0] = en / (1 + en)**2
     H = X.T @ X.multiply(r.reshape(-1,1)) / X.shape[0]
     return H
+
+def logistic_loss_hessian_diag(X,y,w):
+    t = -y * (X @ w)
+    r = t*0.0
+    ep = np.exp(t[t < 0])
+    en = np.exp(-t[t >= 0])
+    r[t <  0] = ep / (1 + ep)**2
+    r[t >= 0] = en / (1 + en)**2
+    H_diag = X.multiply(X.multiply(r.reshape(-1,1))).mean(0)
+    return H_diag.A1
 
 def logistic_loss_hvp(X,y,w,v):
     t = -y * (X @ w)
@@ -87,7 +98,12 @@ def grad(X, y, w, i=None, lam=0.0):
 def hessian(X, y, w, i=None, lam=0.0):
     X, y = slice(X,y,i)
     H = logistic_loss_hessian(X,y,w)
-    return H + lam
+    return H + lam * np.eye(H.shape[0])
+
+def hessian_diag(X, y, w, i=None, lam=0.0):
+    X, y = slice(X,y,i)
+    H_diag = logistic_loss_hessian_diag(X,y,w)
+    return H_diag + lam
 
 def hvp(X, y, w, v, i=None, lam=0.0):
     X, y = slice(X,y,i)
@@ -96,7 +112,6 @@ def hvp(X, y, w, v, i=None, lam=0.0):
 
 
 def test_logistic(X,y,w):
-    import torch
     # np
     i = np.random.choice(X.shape[0], 10)
     X = X[i]
@@ -104,6 +119,7 @@ def test_logistic(X,y,w):
     L = F(X,y,w)
     G = grad(X,y,w)
     H = hessian(X,y,w)
+    H_diag = hessian_diag(X,y,w)
     v = 10*np.random.rand(X.shape[1])
     Hvp = hvp(X,y,w,v)
     # torch
@@ -126,6 +142,9 @@ def test_logistic(X,y,w):
     assert np.abs(H.sum() - H_torch.sum().item()) < SMALL
     print(Hvp.sum(), "≈", Hvp_torch.sum().item())
     assert np.abs(Hvp.sum() - Hvp_torch.sum().item()) < SMALL
+    # H diagonal
+    print(H.diagonal().sum(), "≈", H_diag.sum())
+    assert np.abs(H.diagonal().sum() - H_diag.sum()) < SMALL
 
 
 if __name__ == "__main__":

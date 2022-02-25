@@ -47,6 +47,79 @@ def savefig(data, fname, title="Loss, gradient norm squared, and error"):
         plt.close()
 
 
+def savefig2(data, optimum, fname, title="Loss, gradient norm squared, and error"):
+    fig, axes = plt.subplots(2, 2)
+    fig.set_size_inches(15, 10)
+    plt.suptitle(title)
+    margin = 0.02
+
+    axes[0,0].plot(data[:,0], data[:,1])
+    axes[0,0].set_ylabel(r"$F(w_t)$")
+    axes[0,0].set_xlabel("Effective Passes")
+    axes[0,0].grid()
+    #print(f"Final loss = {data[-1,1]:.6f}")
+
+    axes[0,1].semilogy(data[:,0], data[:,2])
+    axes[0,1].set_ylabel(r"$||\nabla F(w_t)||^2$")
+    axes[0,1].set_xlabel("Effective Passes")
+    axes[0,1].grid()
+
+    axes[1,0].plot(data[:,0], data[:,3])
+    axes[1,0].set_ylabel("Error")
+    axes[1,0].set_xlabel("Effective Passes")
+    axes[1,0].set_ylim([0-margin,1+margin])
+    axes[1,0].grid()
+
+    axes[1,1].plot(data[:,0],data[:,4])
+    axes[1,1].set_ylabel(r"%($D_i > \alpha$)")
+    axes[1,1].set_xlabel("Effective Passes")
+    axes[1,1].set_ylim([0-margin,1+margin])
+    axes[1,1].grid()
+
+    if fname is None:
+        plt.show()
+    else:
+        plt.savefig(fname)
+        plt.close()
+
+        fig = plt.figure()
+        fig.set_size_inches(8, 6)
+        plt.suptitle(r"Hessian Diagonal Estimate Relative Error at $w_t$")
+        plt.plot(data[:,0], data[:,5])
+        plt.ylabel("Relative Error")
+        plt.xlabel("Effective Passes")
+        plt.grid()
+        plt.savefig("H_diag_err_t.png")
+        plt.close()
+
+
+def plot_H_acc(H_diag, D):
+    fig = plt.figure()
+    fig.set_size_inches(8, 6)
+    plt.suptitle("True Hessian Diagonal Vs. Hutchinson's Diagonal Estimate")
+    #plt.plot(H_diag, D, '.', label=r"$D_0$")
+    plt.loglog(H_diag, D, '.', label=r"$D_0$")
+    lim = max(H_diag.max(), D.max())
+    plt.plot([0, lim], [0, lim], '--', label=r"$x=y$")
+    plt.xlabel(r"$diag(H(w_0))$")
+    plt.ylabel(r"$D_0$")
+    plt.legend()
+    plt.savefig("H_vs_D.png")
+    plt.close()
+
+
+def plot_H_approx(H_diag_errs):
+    fig = plt.figure()
+    fig.set_size_inches(8, 6)
+    plt.suptitle(r"Hessian Diagonal Estimate Relative Error at $w_0$")
+    plt.plot(H_diag_errs)
+    plt.ylabel(r"Relative Error")
+    plt.xlabel(r"Number of Samples")
+    plt.grid()
+    plt.savefig("H_diag_err_0.png")
+    plt.close()
+
+
 def get_logs(dataset, optimizer, **filter_args):
     """
     Return all logs having the same given args.
@@ -85,11 +158,6 @@ def unpack_args(fname):
         args["precond_warmup"] = int(args_str["precond_warmup"])
     else:
         args["precond"] = None
-        # random numbers XXX
-        #args["beta"] = 0.999
-        #args["alpha"] = 1e-5
-        #args["precond_resample"] = False
-        #args["precond_warmup"] = 10
     if "corrupt" in args_str:
         args["corrupt"] = args_str["corrupt"]
     else:

@@ -26,8 +26,8 @@ def parse_args():
     parser.add_argument("-s", "--seed", type=int, default=None, help='random seed')
     parser.add_argument("--dataset", type=str, choices=DATASETS, default="a1a",
                         help="name of dataset (in 'datasets' directory")
-    parser.add_argument("--corrupt", nargs="*", type=int, default=None, help="If specified, corrupt scale of dataset."\
-                        "Takes at most two values: k_min, k_max, specifying the range of powers in scale."\
+    parser.add_argument("--corrupt", nargs="*", type=int, default=None, help="If specified, corrupt scale of dataset."
+                        "Takes at most two values: k_min, k_max, specifying the range of powers in scale."
                         "If one value k is given, the range will be (-k,k) (otherwise, default to (-3,3)).")
     parser.add_argument("--savefig", type=str, default=None, help="save plots under this name (default: don't save)")
     parser.add_argument("--savedata", type=str, default=None, help="save data log (default: don't save)")
@@ -36,8 +36,8 @@ def parse_args():
     parser.add_argument("-T", "--epochs", dest="T", type=int, default=5, help="number of epochs to run")
     parser.add_argument("-BS", "--batch_size", dest="BS", type=int, default=1, help="batch size")
     parser.add_argument("-lr", "--gamma", type=float, default=0.02, help="base learning rate")
-    parser.add_argument("--alpha", type=float, default=0.0, help="min value of diagonal of hessian estimate")
-    parser.add_argument("--beta", type=float, default=0.99, help="adaptive rate of hessian estimate")
+    parser.add_argument("--alpha", type=float, default=1e-5, help="min value of diagonal of hessian estimate")
+    parser.add_argument("--beta", type=float, default=0.999, help="adaptive rate of hessian estimate")
     parser.add_argument("--lam", type=float, default=0., help="regularization coefficient")
     parser.add_argument("-p", "--update-p", dest="p", type=float, default=0.99, help="probability of updating checkpoint in L-SVRG")
     parser.add_argument("--precond", type=str.lower, default=None, help="Diagonal preconditioning method (default: none)")
@@ -54,6 +54,7 @@ def parse_args():
 def get_data(filePath):
     data = load_svmlight_file(filePath)
     return data[0], data[1]
+
 
 def corrupt_scale(X, k_min=-3, k_max=3):
     bad_scale = 10**np.linspace(k_min, k_max, X.shape[1])
@@ -127,7 +128,8 @@ def train(args):
         if args.corrupt is not None:
             title += f", corrupt=[{args.corrupt[0]}, {args.corrupt[1]}]"
         print(f"Saving plot to '{args.savefig}'.")
-        savefig(data, args.savefig, title=title)
+        optimum = OPTIMAL_LOSS[os.path.basename(args.dataset)]
+        savefig2(data, optimum, args.savefig, title=title)
 
     if args.savedata is not None:
         print(f"Saving data to '{args.savedata}'.")
@@ -137,6 +139,7 @@ def train(args):
 def main():
     args = parse_args()
     train(args)
+
 
 if __name__ == "__main__":
     main()

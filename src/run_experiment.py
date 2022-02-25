@@ -8,22 +8,22 @@ from random import random
 from train import *
 
 SEED = 123
-T = 30
+T = 50
 LOG_DIR = "logs"
 
 #DATASETS = ("covtype", "ijcnn1", "news20", "rcv1",)
 #DATASETS = ("a9a",  "w8a", "rcv1", "covtype", "real-sim",)
 
-DATASETS = ("a9a",  "w8a", "rcv1", "real-sim",)
+DATASETS = ("a9a", "w8a", "rcv1", "real-sim")
 OPTIMIZERS = ("SGD", "SARAH", "L-SVRG")
-BATCH_SIZES = (1, 128,)
-GAMMAS = (2**i for i in range(-30,10+1,2))
+BATCH_SIZES = (128, 512, 2048)
+GAMMAS = (2**i for i in range(-20, 1, 2))
 LAMBDAS = (0.0,)
 PS = (0.99,)
-PRECONDS = (None, "hutchinson",)
-BETAS = (0.99,)
-ALPHAS = (0.0,)
-CORRUPT = (None, [-6,0], [0,6], [-3,3], [-6,6])
+PRECONDS = ("hutchinson",)
+BETAS = (0.999,)
+ALPHAS = (1e-1, 1e-3, 1e-5, 1e-7, 1e-9)
+CORRUPT = ([-3,0], [0,3], [-3,3])
 
 HYPERPARAM_GRID = product(DATASETS,
                           OPTIMIZERS,
@@ -45,7 +45,7 @@ np.random.shuffle(HYPERPARAM_GRID)
 def main():
     # Give other jobs a chance to avoid conflicts
     time.sleep(3 * random())
-    
+
     # Create log dirs on start up
     if not os.path.isdir(LOG_DIR):
         os.mkdir(LOG_DIR)
@@ -55,7 +55,7 @@ def main():
             os.mkdir(dataset_path)
 
     for dataset, optimizer, BS, gamma, lam, p,\
-        precond, beta, alpha, corrupt in HYPERPARAM_GRID:
+            precond, beta, alpha, corrupt in HYPERPARAM_GRID:
         # Create log file name in a way that remembers all args
         args_str = f"BS={BS},gamma={gamma},lam={lam}"
         if optimizer == "L-SVRG":
@@ -88,7 +88,7 @@ def main():
                          lam=lam,
                          optimizer=optimizer,
                          precond=precond,
-                         precond_warmup=1,
+                         precond_warmup=100,
                          precond_resample=False,
                          precond_zsamples=1,
                          p=p,
@@ -100,7 +100,6 @@ def main():
         print(logfile)
         train(args)
 
+
 if __name__ == "__main__":
     main()
-
-
