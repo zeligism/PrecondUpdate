@@ -159,7 +159,7 @@ def SGD(X, y, T=10000, BS=1, gamma=0.0002, beta=0.999, lam=0.0, alpha=1e-5,
 
 def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
           precond="hutchinson", precond_warmup=10, precond_resample=True, precond_zsamples=1):
-    ep = 0  # count effective       (full) passes through dataset
+    ep = 0  # count effective (full) passes through dataset
     data = []
     wn = np.zeros(X.shape[1])
 
@@ -272,7 +272,6 @@ def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, p=0.
     w_out = np.zeros(X.shape[1])
     w_in = w_out[:]
     g_full = grad(X,y,w_out,lam=lam)
-    ep += 1
 
     alpha0 = alpha
     # alpha = alpha0*np.linalg.norm(g_full)**2
@@ -280,6 +279,8 @@ def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, p=0.
                       precond_warmup=precond_warmup, precond_zsamples=precond_zsamples)
     D_ratio = np.mean(D > alpha)
     data.append(collect_data(ep,X,y,w_out,lam,D,D_ratio))
+
+    ep += 1
 
     for it in range(T * (X.shape[0] // BS)):
         # Calculate gradients
@@ -301,7 +302,7 @@ def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, p=0.
         D_ratio = np.mean(D > alpha)
 
         # Inner loop stopping criterion is now for updating w_out
-        # and comes before the update rule
+        # and comes before the update rule @XXX: move after update data?
         if np.random.rand(1)[0] > p:
             w_out = w_in[:]
             g_full = grad(X,y,w_out,lam=lam)

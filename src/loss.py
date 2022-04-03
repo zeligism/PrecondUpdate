@@ -19,13 +19,16 @@ def slice(X,y,i):
 def logistic_loss_njit(X,iX,jX,y,w):
     raise NotImplementedError()
 
+
 @njit
 def logistic_loss_grad_njit(X,iX,jX,y,w):
     raise NotImplementedError()
 
+
 @njit
 def logistic_loss_hessian_njit(X,iX,jX,y,w):
     raise NotImplementedError()
+
 
 @njit
 def logistic_loss_hvp_njit(X,iX,jX,y,w,v):
@@ -41,6 +44,7 @@ def logistic_loss(X,y,w, M=25):
     loss[t <= M] = np.log(1 + np.exp(t[t <= M]))
     return np.mean(loss)
 
+
 def logistic_loss_grad(X,y,w):
     t = -y * (X @ w)
     r = t*0.0
@@ -50,6 +54,7 @@ def logistic_loss_grad(X,y,w):
     r[t >= 0] = 1 / (1 + en)
     grad = X.T @ (-y * r) / X.shape[0]
     return grad
+
 
 def logistic_loss_hessian(X,y,w):
     t = -y * (X @ w)
@@ -61,6 +66,7 @@ def logistic_loss_hessian(X,y,w):
     H = X.T @ X.multiply(r.reshape(-1,1)) / X.shape[0]
     return H
 
+
 def logistic_loss_hessian_diag(X,y,w):
     t = -y * (X @ w)
     r = t*0.0
@@ -70,6 +76,7 @@ def logistic_loss_hessian_diag(X,y,w):
     r[t >= 0] = en / (1 + en)**2
     H_diag = X.multiply(X.multiply(r.reshape(-1,1))).mean(0)
     return H_diag.A1
+
 
 def logistic_loss_hvp(X,y,w,v):
     t = -y * (X @ w)
@@ -90,20 +97,24 @@ def F(X, y, w, i=None, lam=0.0):
     F = logistic_loss(X,y,w)
     return F + lam * np.linalg.norm(w)**2
 
+
 def grad(X, y, w, i=None, lam=0.0):
     X, y = slice(X,y,i)
     g = logistic_loss_grad(X,y,w)
     return g + lam * w
+
 
 def hessian(X, y, w, i=None, lam=0.0):
     X, y = slice(X,y,i)
     H = logistic_loss_hessian(X,y,w)
     return H + lam * np.eye(H.shape[0])
 
+
 def hessian_diag(X, y, w, i=None, lam=0.0):
     X, y = slice(X,y,i)
     H_diag = logistic_loss_hessian_diag(X,y,w)
     return H_diag + lam
+
 
 def hvp(X, y, w, v, i=None, lam=0.0):
     X, y = slice(X,y,i)

@@ -7,25 +7,29 @@ from itertools import product
 from random import random
 from train import *
 
-SEED = 123
+#LOG_DIR = "logs_precond"
+LOG_DIR = "logs_noprecond"
+
 T = 50
-LOG_DIR = "logs"
-
+SEEDS = (123,)
 #DATASETS = ("covtype", "ijcnn1", "news20", "rcv1",)
-#DATASETS = ("a9a",  "w8a", "rcv1", "covtype", "real-sim",)
-
 DATASETS = ("a9a", "w8a", "rcv1", "real-sim")
 OPTIMIZERS = ("SGD", "SARAH", "L-SVRG")
-BATCH_SIZES = (128, 512, 2048)
-GAMMAS = (2**i for i in range(-20, 1, 2))
+#BATCH_SIZES = (128, 512, 2048)
+BATCH_SIZES = (128,)
+GAMMAS = (2**i for i in range(-16, 3, 2))
 LAMBDAS = (0.0,)
 PS = (0.99,)
-PRECONDS = ("hutchinson",)
+#PRECONDS = ("hutchinson",)
+PRECONDS = (None,)
 BETAS = (0.999,)
-ALPHAS = (1e-1, 1e-3, 1e-5, 1e-7, 1e-9)
+#ALPHAS = (1e-1, 1e-3, 1e-5, 1e-7, 1e-9)
+ALPHAS = (1e-3,)
 CORRUPT = ([-3,0], [0,3], [-3,3])
 
-HYPERPARAM_GRID = product(DATASETS,
+
+HYPERPARAM_GRID = product(SEEDS,
+                          DATASETS,
                           OPTIMIZERS,
                           BATCH_SIZES,
                           GAMMAS,
@@ -40,6 +44,9 @@ HYPERPARAM_GRID = product(DATASETS,
 # This ensures that faster jobs finish earlier
 HYPERPARAM_GRID = list(HYPERPARAM_GRID)
 np.random.shuffle(HYPERPARAM_GRID)
+PRECOND_WARMUP = 100
+PRECOND_RESAMPLE = False
+PRECOND_ZSAMPLES = 1
 
 
 def main():
@@ -54,10 +61,10 @@ def main():
         if not os.path.isdir(dataset_path):
             os.mkdir(dataset_path)
 
-    for dataset, optimizer, BS, gamma, lam, p,\
+    for seed, dataset, optimizer, BS, gamma, lam, p,\
             precond, beta, alpha, corrupt in HYPERPARAM_GRID:
         # Create log file name in a way that remembers all args
-        args_str = f"BS={BS},gamma={gamma},lam={lam}"
+        args_str = f"seed={seed},BS={BS},gamma={gamma},lam={lam}"
         if optimizer == "L-SVRG":
             args_str += f",p={p}"
         if precond is not None:
@@ -88,13 +95,13 @@ def main():
                          lam=lam,
                          optimizer=optimizer,
                          precond=precond,
-                         precond_warmup=100,
-                         precond_resample=False,
-                         precond_zsamples=1,
+                         precond_warmup=PRECOND_WARMUP,
+                         precond_resample=PRECOND_RESAMPLE,
+                         precond_zsamples=PRECOND_ZSAMPLES,
                          p=p,
                          savedata=logfile,
                          savefig=None,
-                         seed=SEED)
+                         seed=seed)
 
         # Run
         print(logfile)
