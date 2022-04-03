@@ -8,24 +8,27 @@ from random import random
 from train import *
 
 #LOG_DIR = "logs_precond"
-LOG_DIR = "logs_noprecond"
+LOG_DIR = "logs_combined_adam"
 
 T = 50
 SEEDS = (123,)
 #DATASETS = ("covtype", "ijcnn1", "news20", "rcv1",)
 DATASETS = ("a9a", "w8a", "rcv1", "real-sim")
-OPTIMIZERS = ("SGD", "SARAH", "L-SVRG")
+#OPTIMIZERS = ("SGD", "SARAH", "L-SVRG")
+OPTIMIZERS = ("Adam",)
 #BATCH_SIZES = (128, 512, 2048)
 BATCH_SIZES = (128,)
 GAMMAS = (2**i for i in range(-16, 3, 2))
 LAMBDAS = (0.0,)
 PS = (0.99,)
-#PRECONDS = ("hutchinson",)
+#PRECONDS = (None, "hutchinson")
 PRECONDS = (None,)
 BETAS = (0.999,)
 #ALPHAS = (1e-1, 1e-3, 1e-5, 1e-7, 1e-9)
 ALPHAS = (1e-3,)
 CORRUPT = ([-3,0], [0,3], [-3,3])
+
+DRY_RUN = False
 
 
 HYPERPARAM_GRID = product(SEEDS,
@@ -105,7 +108,8 @@ def main():
 
         # Run
         print(logfile)
-        train(args)
+        if not DRY_RUN:
+            train(args)
 
 
 if __name__ == "__main__":

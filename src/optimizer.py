@@ -316,3 +316,33 @@ def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, p=0.
             data.append(collect_data(ep,X,y,w_in,lam,D,D_ratio))
 
     return w_in, np.array(data)
+
+
+def Adam(X, y, T=10000, BS=1, gamma=0.2, beta1=0.9, beta2=0.999, eps=1e-8, **_):
+    ep = 0  # count effective (full) passes through dataset
+    data = []
+    w = np.zeros(X.shape[1])
+    m = w[:]
+    v = w[:]
+    data.append(collect_data(ep,X,y,w,0.,0.,0.))
+
+    for it in range(T * (X.shape[0] // BS)):
+        # Calculate gradients
+        i = np.random.choice(X.shape[0], BS)
+        g = grad(X,y,w,i)
+        ep += BS / X.shape[0]
+
+        m = beta1 * m + (1 - beta1) * g
+        v = beta2 * v + (1 - beta2) * g**2
+
+        m_corr = m / (1 - beta1**(it+1))
+        v_corr = v / (1 - beta2**(it+1))
+
+        # Update rule
+        w = w - gamma * (m_corr / (np.sqrt(v_corr) + eps))
+
+        # Update data
+        if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
+            data.append(collect_data(ep,X,y,w,0.,0.,0.))
+
+    return w, np.array(data)

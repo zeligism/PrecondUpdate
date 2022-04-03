@@ -86,7 +86,7 @@ def savefig(data, fname, title="Loss, gradient norm squared, and error"):
         plt.close()
 
 
-def savefig2(data, optimum, fname, title="Loss, gradient norm squared, and error"):
+def savefig2(data, fname, title="Loss, gradient norm squared, and error"):
     fig, axes = plt.subplots(2, 2)
     fig.set_size_inches(15, 10)
     plt.suptitle(title)
@@ -251,8 +251,8 @@ def sns_get_optimal_hyperparams(logdir, metric=LOSS, agg=AGG, **filter_args):
     argcols = ["gamma", "BS", "precond", "alpha"]
     metric = columns[metric]
     # Gather data
-    all_df = {}
-    best_df = {}
+    all_dfs = {}
+    best_dfs = {}
     for exp in product(DATASETS, OPTIMIZERS):
         exp_df = pd.DataFrame()
         for data, args in get_logs(logdir, *exp, **filter_args):
@@ -263,7 +263,9 @@ def sns_get_optimal_hyperparams(logdir, metric=LOSS, agg=AGG, **filter_args):
             for col in argcols:
                 df[col] = args[col]
             # Dilute iterations if averaging across seeds @XXX
-            df = df[df["ep"] <= T].iloc[::EP_DILUTION]
+            if EP_DILUTION > 1:
+                df["ep"] = round(df["ep"], 1)
+                df = df[df["ep"] <= T].iloc[::EP_DILUTION]
             exp_df = exp_df.append(df, ignore_index=True)
 
         # Set index to arg settings
@@ -278,10 +280,10 @@ def sns_get_optimal_hyperparams(logdir, metric=LOSS, agg=AGG, **filter_args):
         min_agg_perf = agg_perf[agg_perf[metric] == agg_perf.min()[metric]]
 
         # Get the data associated with the args of the min aggregated metric
-        best_df[exp] = exp_df.set_index(argcols).loc[min_agg_perf.index]
-        all_df[exp] = exp_df
+        best_dfs[exp] = exp_df.set_index(argcols).loc[min_agg_perf.index]
+        all_dfs[exp] = exp_df
 
-    return all_df, best_df
+    return all_dfs, best_dfs
 
 
 def plot_all_hyperparams(data_dict, **filter_args):

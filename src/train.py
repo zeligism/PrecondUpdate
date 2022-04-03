@@ -17,7 +17,7 @@ from plot import *
 mem = Memory("./mycache")
 DATASET_DIR = "datasets"
 DATASETS = ("a1a", "a9a", "rcv1", "covtype", "real-sim", "w8a", "ijcnn1", "news20",)
-OPTIMIZERS = ("SGD", "SARAH", "OASIS", "SVRG", "L-SVRG",)
+OPTIMIZERS = ("SGD", "SARAH", "OASIS", "SVRG", "L-SVRG", "Adam")
 
 
 def parse_args():
@@ -36,7 +36,7 @@ def parse_args():
     parser.add_argument("-T", "--epochs", dest="T", type=int, default=5, help="number of epochs to run")
     parser.add_argument("-BS", "--batch_size", dest="BS", type=int, default=1, help="batch size")
     parser.add_argument("-lr", "--gamma", type=float, default=0.02, help="base learning rate")
-    parser.add_argument("--alpha", type=float, default=1e-5, help="min value of diagonal of hessian estimate")
+    parser.add_argument("--alpha", type=float, default=1e-7, help="min value of diagonal of hessian estimate")
     parser.add_argument("--beta", type=float, default=0.999, help="adaptive rate of hessian estimate")
     parser.add_argument("--lam", type=float, default=0., help="regularization coefficient")
     parser.add_argument("-p", "--update-p", dest="p", type=float, default=0.99, help="probability of updating checkpoint in L-SVRG")
@@ -109,6 +109,8 @@ def train(args):
         wopt, data = SVRG(X, y, **kwargs)
     elif args.optimizer == "L-SVRG":
         wopt, data = L_SVRG(X, y, **kwargs, p=args.p)
+    elif args.optimizer == "Adam":
+        wopt, data = Adam(X, y, **kwargs)
     else:
         raise NotImplementedError(f"Optimizer '{args.optimizer}' not implemented yet.")
     print("Done.")
@@ -128,8 +130,7 @@ def train(args):
         if args.corrupt is not None:
             title += f", corrupt=[{args.corrupt[0]}, {args.corrupt[1]}]"
         print(f"Saving plot to '{args.savefig}'.")
-        optimum = OPTIMAL_LOSS[os.path.basename(args.dataset)]
-        savefig2(data, optimum, args.savefig, title=title)
+        savefig2(data, args.savefig, title=title)
 
     if args.savedata is not None:
         print(f"Saving data to '{args.savedata}'.")
