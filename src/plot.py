@@ -1,4 +1,4 @@
-
+# @TODO: remove old (not prefixed by sns_) plotting functions?
 import argparse
 import pickle
 import os
@@ -42,7 +42,8 @@ HYPERPARAMS_DICT = {
 
 # These are always clearly worse than optimal, so just ignore them to avoid clutter
 IGNORE_HYPERPARAMS = {
-    "alpha": [1e-9],
+    #"alpha": [1e-9],
+    "alpha": [1e-1, 1e-3, 1e-7, 1e-9],
     "BS": [2048],
     "gamma": [2**-16, 2**-18, 2**-20],
 }
@@ -320,7 +321,7 @@ def plot_all_hyperparams(data_dict, **filter_args):
                 axes[i,j].legend(fontsize=10, loc=1, prop={'size': 7})
     fig.tight_layout()
 
-    plt.savefig(f"plots/gammas({filter_args_str}).png")
+    plt.savefig(f"plots/lr({filter_args_str}).png")
     plt.close()
 
 
@@ -342,15 +343,19 @@ def sns_plot_all_hyperparams(data_dict, **filter_args):
             exp_df = data_dict[exp]
             m = next(markers)
             axes[i,j].set_title(f"{optimizer}({dataset})")
-            sns.lineplot(ax=axes[i,j],x="ep", y="gradnorm", hue="gamma",
-                         hue_norm=LogNorm(), palette="vlag",
-                         size="BS", sizes=(1, 2), style="alpha", data=exp_df)
+            # avoid silly problem of inconsistent style across axes
+            exp_df["alpha"] = exp_df["alpha"].astype(str)
+            exp_df = exp_df.sort_values("alpha", ascending=False)
+            sns.lineplot(ax=axes[i,j], x="ep", y="gradnorm",
+                         hue="gamma", hue_norm=LogNorm(), palette="vlag",
+                         #size="BS", sizes=(1, 2),  # @XXX
+                         style="alpha", data=exp_df)
             axes[i,j].set(yscale="log")
             axes[i,j].set_ylabel(r"$||\nabla F(w_t)||^2$")
             axes[i,j].set_xlabel("Effective Passes")
     fig.tight_layout()
 
-    plt.savefig(f"plots/gammas({filter_args_str}).png")
+    plt.savefig(f"plots/lr({filter_args_str}).png")
     plt.close()
 
 
@@ -453,7 +458,7 @@ def generate_plots(hp_dict, metric, logdir, seaborn=SEABORN):
         print("Plotting:", filter_args, "...")
         if seaborn:
             all_data, best_data = sns_get_optimal_hyperparams(logdir, metric=metric, **filter_args)
-            #sns_plot_all_hyperparams(all_data, **filter_args)
+            sns_plot_all_hyperparams(all_data, **filter_args)
             sns_plot_optimal_hyperparams(best_data, **filter_args)
         else:
             all_data, best_data = get_optimal_hyperparams(logdir, metric=metric, **filter_args)
@@ -461,7 +466,7 @@ def generate_plots(hp_dict, metric, logdir, seaborn=SEABORN):
             plot_optimal_hyperparams(best_data, **filter_args)
 
         metric_name = (None, "loss", "gradnorm", "error")[metric]
-        print(f"Optimal gammas using {metric_name} metric:")
+        print(f"Optimal learning rates using {metric_name} metric:")
         display_best_performances(best_data, seaborn=seaborn)
 
 
@@ -486,6 +491,8 @@ def generate_plots_compare_precond(hp_dict, metric, logdir):
             optim_df = pd.DataFrame()
             for optimizer in OPTIMIZERS:
                 exp = (dataset, optimizer)
+                if exp not in best_data_with or exp not in best_data_without:
+                    continue
                 exp_df = best_data_without[exp].append(best_data_with[exp])
                 exp_df["optimizer"] = optimizer
                 optim_df = optim_df.append(exp_df)
@@ -514,9 +521,9 @@ def generate_plots_compare_precond(hp_dict, metric, logdir):
         plt.close()
 
         metric_name = (None, "loss", "gradnorm", "error")[metric]
-        print(f"Optimal gammas using {metric_name} metric WITHOUT preconditoning:")
+        print(f"Optimal learning rates using {metric_name} metric WITHOUT preconditoning:")
         display_best_performances(best_data_without, seaborn=True)
-        print(f"Optimal gammas using {metric_name} metric WITH preconditoning:")
+        print(f"Optimal learning rates using {metric_name} metric WITH preconditoning:")
         display_best_performances(best_data_with, seaborn=True)
 
 
