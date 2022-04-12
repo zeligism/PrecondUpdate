@@ -12,6 +12,7 @@ from sklearn.datasets import load_svmlight_file
 from sklearn.preprocessing import normalize
 
 from optimizer import *
+import optimizer_new as NEWOPT
 from plot import *
 
 mem = Memory("./mycache")
@@ -100,7 +101,12 @@ def train(args):
                   precond_zsamples=args.precond_zsamples,
                   )
     if args.optimizer == "SGD":
+        np.random.seed(args.seed)
         wopt, data = SGD(X, y, **kwargs)
+        print(wopt.sum())
+        np.random.seed(args.seed)
+        wopt, data = NEWOPT.SGD_(X, y, **kwargs)
+        print(wopt.sum())
     elif args.optimizer == "SARAH":
         wopt, data = SARAH(X, y, **kwargs)
     elif args.optimizer == "OASIS":
@@ -110,7 +116,12 @@ def train(args):
     elif args.optimizer == "L-SVRG":
         wopt, data = L_SVRG(X, y, **kwargs, p=args.p)
     elif args.optimizer == "Adam":
+        np.random.seed(args.seed)
         wopt, data = Adam(X, y, **kwargs)
+        print(wopt.sum())
+        np.random.seed(args.seed)
+        wopt, data = NEWOPT.Adam_(X, y, **kwargs)
+        print(wopt.sum())
     else:
         raise NotImplementedError(f"Optimizer '{args.optimizer}' not implemented yet.")
     print("Done.")
