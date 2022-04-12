@@ -1,6 +1,6 @@
 
 from loss import F, grad, hessian_diag, hvp
-from plot import plot_H_acc, plot_H_approx
+from plot import plot_hessian_acc, plot_hessian_approx
 
 import numpy as np
 
@@ -69,7 +69,7 @@ def update_diagonal(D, X, y, w, i, beta=0.999, lam=0.0, alpha=1e-5,
 
 
 def OASIS(X, y, T=10000, BS=1, gamma=1.0, beta=0.99, lam=0.0, alpha=1e-5, adaptive_gamma=True,
-          precond="hutchinson", precond_warmup=10, precond_resample=True, precond_zsamples=1):
+          precond="hutchinson", precond_warmup=10, precond_resample=False, precond_zsamples=1):
     ep = 0  # count effective (full) passes through dataset
     data = []
     w = np.zeros(X.shape[1])
@@ -119,7 +119,7 @@ def OASIS(X, y, T=10000, BS=1, gamma=1.0, beta=0.99, lam=0.0, alpha=1e-5, adapti
 
 
 def SGD(X, y, T=10000, BS=1, gamma=0.0002, beta=0.999, lam=0.0, alpha=1e-5,
-        precond="hutchinson", precond_warmup=10, precond_resample=True, precond_zsamples=1,
+        precond="hutchinson", precond_warmup=10, precond_resample=False, precond_zsamples=1,
         momentum=0.0, adam=False):
     ep = 0  # count effective (full) passes through dataset
     data = []
@@ -166,15 +166,10 @@ def SGD(X, y, T=10000, BS=1, gamma=0.0002, beta=0.999, lam=0.0, alpha=1e-5,
 
 
 def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
-          precond="hutchinson", precond_warmup=10, precond_resample=True, precond_zsamples=1,
-          momentum=0.0, adam=False):
+          precond="hutchinson", precond_warmup=10, precond_resample=False, precond_zsamples=1):
     ep = 0  # count effective (full) passes through dataset
     data = []
     wn = np.zeros(X.shape[1])
-    momentum = 0.0
-    if adam:
-        m = wn[:]
-        v = wn[:]
 
     D = init_diagonal(X,y,wn,BS, alpha=alpha, precond=precond,
                       precond_warmup=precond_warmup, precond_zsamples=precond_zsamples)
@@ -208,15 +203,7 @@ def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
 
             # Update rule
             wp = wn[:]
-            if adam:
-                m = momentum * m + (1 - momentum) * g
-                v = beta * v + (1 - beta) * g**2
-                m_corr = m / (1 - momentum**(it+1))
-                v_corr = v / (1 - beta**(it+1))
-                D_mix = np.sqrt(v_corr) + D
-                wn -= gamma * D_mix**-1 * m_corr
-            else:
-                wn -= gamma * D**-1 * g
+            wn -= gamma * D**-1 * g
 
             # Update data
             freq = X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)
@@ -232,14 +219,10 @@ def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
 
 
 def SVRG(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
-         precond="hutchinson", precond_warmup=10, precond_resample=True, precond_zsamples=1,
-         momentum=0.0, adam=False):
+         precond="hutchinson", precond_warmup=10, precond_resample=False, precond_zsamples=1):
     ep = 0  # count effective (full) passes through dataset
     data = []
     w_out = np.zeros(X.shape[1])
-    if adam:
-        m = w_out[:]
-        v = w_out[:]
 
     D = init_diagonal(X,y,w_out,BS, alpha=alpha, precond=precond,
                       precond_warmup=precond_warmup, precond_zsamples=precond_zsamples)
@@ -271,15 +254,7 @@ def SVRG(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
             D_ratio = np.mean(D > alpha)
 
             # Update rule
-            if adam:
-                m = momentum * m + (1 - momentum) * g
-                v = beta * v + (1 - beta) * g**2
-                m_corr = m / (1 - momentum**(it+1))
-                v_corr = v / (1 - beta**(it+1))
-                D_mix = np.sqrt(v_corr) + D
-                w_in -= gamma * D_mix**-1 * m_corr
-            else:
-                w_in -= gamma * D**-1 * g
+            w_in -= gamma * D**-1 * g
 
             # Update data
             if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
@@ -294,15 +269,11 @@ def SVRG(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
 
 
 def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, p=0.99,
-           precond="hutchinson", precond_warmup=10, precond_resample=True, precond_zsamples=1,
-           momentum=0.0, adam=False):
+           precond="hutchinson", precond_warmup=10, precond_resample=False, precond_zsamples=1):
     ep = 0  # count effective (full) passes through dataset
     data = []
     w_out = np.zeros(X.shape[1])
     w_in = w_out[:]
-    if adam:
-        m = w_out[:]
-        v = w_out[:]
     g_full = grad(X,y,w_out,lam=lam)
 
     D = init_diagonal(X,y,w_out,BS, alpha=alpha, precond=precond,
@@ -337,15 +308,7 @@ def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, p=0.
             ep += 1
 
         # Update rule
-        if adam:
-            m = momentum * m + (1 - momentum) * g
-            v = beta * v + (1 - beta) * g**2
-            m_corr = m / (1 - momentum**(it+1))
-            v_corr = v / (1 - beta**(it+1))
-            D_mix = np.sqrt(v_corr) + D
-            w_in -= gamma * D_mix**-1 * m_corr
-        else:
-            w_in -= gamma * D**-1 * g
+        w_in -= gamma * D**-1 * g
 
         # Update data
         if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
