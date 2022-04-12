@@ -14,15 +14,17 @@ from collections import defaultdict
 MARKERS = (',', '+', '.', 'o', '*', "D")
 METRICS = ("loss", "gradnorm", "error")
 AGGS = ("median", "mean")
-AGG = AGGS[0]
 LOSS = METRICS.index("loss") + 1
 GRADNORM = METRICS.index("gradnorm") + 1
 ERROR = METRICS.index("error") + 1
 
 # These should be the same as the one used in run_experiment.py
 DATASETS = ("a9a", "w8a", "rcv1", "real-sim",)
-OPTIMIZERS = ("SGD", "SARAH", "L-SVRG")
-T = 50
+#OPTIMIZERS = ("SGD", "SARAH", "L-SVRG")
+OPTIMIZERS = ("SGD", "Adam", "SARAH", "L-SVRG")
+T = 100
+AGG = AGGS[0]
+METRIC = METRICS[0]
 
 # Use Seaborn for plots
 SEABORN = True
@@ -33,11 +35,12 @@ EP_DILUTION = 1
 ### Restrict plots for each combination of hyperparameter setting
 HYPERPARAMS_DICT = {
     #"alpha": (1e-3,),
+    #"seed": (123,),
     "BS": (128,),
-    "corrupt": ("[-3-0]", "[0-3]", "[-3-3]"),
+    "corrupt": ("None", "[-3-0]", "[0-3]", "[-3-3]"),
 }
 
-# These are always clearly worse than optimal, so just ignore them
+# These are always clearly worse than optimal, so just ignore them to avoid clutter
 IGNORE_HYPERPARAMS = {
     "alpha": [1e-9],
     "BS": [2048],
@@ -103,10 +106,10 @@ def savefig2(data, fname, title="Loss, gradient norm squared, and error"):
     axes[0,1].set_xlabel("Effective Passes")
     axes[0,1].grid()
 
-    axes[1,0].plot(data[:,0], data[:,3])
+    axes[1,0].semilogy(data[:,0], data[:,3])
     axes[1,0].set_ylabel("Error")
     axes[1,0].set_xlabel("Effective Passes")
-    axes[1,0].set_ylim([0-margin,1+margin])
+    #axes[1,0].set_ylim([0-margin,1+margin])
     axes[1,0].grid()
 
     axes[1,1].plot(data[:,0],data[:,4])
@@ -132,7 +135,7 @@ def savefig2(data, fname, title="Loss, gradient norm squared, and error"):
         plt.close()
 
 
-def plot_H_acc(H_diag, D):
+def plot_hessian_acc(H_diag, D):
     fig = plt.figure()
     fig.set_size_inches(8, 6)
     plt.suptitle("True Hessian Diagonal Vs. Hutchinson's Diagonal Estimate")
@@ -147,7 +150,7 @@ def plot_H_acc(H_diag, D):
     plt.close()
 
 
-def plot_H_approx(H_diag_errs):
+def plot_hessian_approx(H_diag_errs):
     fig = plt.figure()
     fig.set_size_inches(8, 6)
     plt.suptitle(r"Hessian Diagonal Estimate Relative Error at $w_0$")
@@ -266,10 +269,14 @@ def sns_get_optimal_hyperparams(logdir, metric=LOSS, agg=AGG, **filter_args):
             if EP_DILUTION > 1:
                 df["ep"] = round(df["ep"], 1)
                 df = df[df["ep"] <= T].iloc[::EP_DILUTION]
+            else:
+                df = df[df["ep"] <= T]
             exp_df = exp_df.append(df, ignore_index=True)
 
         # Set index to arg settings
         # Get performance at last iteration
+        if len(exp_df) == 0:
+            continue
         max_ep = exp_df.groupby(argcols, sort=False)["ep"].transform(max)
         perf = exp_df[exp_df["ep"] == max_ep].drop("ep", axis=1)
         # Find the minimum aggregated metric (based on mean, median, etc.)
@@ -404,9 +411,10 @@ def sns_plot_optimal_hyperparams(best_data, **filter_args):
     fig.set_size_inches(5 * len(DATASETS), 5 * 3)
     plt.suptitle(rf"Top performance per optimizer for ({filter_args_str})")
     for j, dataset in enumerate(DATASETS):
-        markers = cycle(MARKERS)
         for optimizer in OPTIMIZERS:
             exp = (dataset, optimizer)
+            if exp not in best_data:
+                continue
             args = {k:v for k,v in zip(best_data[exp].index.names, best_data[exp].index[0])}
             exp_df = best_data[exp].reset_index()
             gamma_pow = round(log2(args['gamma']))
@@ -445,7 +453,7 @@ def generate_plots(hp_dict, metric, logdir, seaborn=SEABORN):
         print("Plotting:", filter_args, "...")
         if seaborn:
             all_data, best_data = sns_get_optimal_hyperparams(logdir, metric=metric, **filter_args)
-            sns_plot_all_hyperparams(all_data, **filter_args)
+            #sns_plot_all_hyperparams(all_data, **filter_args)
             sns_plot_optimal_hyperparams(best_data, **filter_args)
         else:
             all_data, best_data = get_optimal_hyperparams(logdir, metric=metric, **filter_args)
@@ -517,6 +525,8 @@ def display_best_performances(best_data, seaborn=SEABORN):
         for optimizer in OPTIMIZERS:
             # Extract best performance metrics for each experiment
             exp = (dataset, optimizer)
+            if exp not in best_data:
+                continue
             if seaborn:
                 args = {k:v for k,v in zip(best_data[exp].index.names, best_data[exp].index[0])}
                 exp_df = best_data[exp].reset_index()
@@ -540,14 +550,24 @@ def display_best_performances(best_data, seaborn=SEABORN):
 
 
 def main():
+    global EP_DILUTION
+    global AGG
+
     parser = argparse.ArgumentParser(description="Generate different performances plots from optimization logs")
     parser.add_argument("--logdir", type=str, default="logs", help="name of logs directory")
     parser.add_argument("--plotdir", type=str, default="plots", help="name of plots directory")
-    parser.add_argument("--metric", type=str, choices=METRICS, default=METRICS[0],
+    parser.add_argument("--metric", type=str, choices=METRICS, default=METRIC,
                         help="name of metric with respect to which the optimal hyperparams will be chosen")
+    parser.add_argument("--dilute", type=int, default=EP_DILUTION, help="dilution of number of data points")
+    parser.add_argument("--agg", type=str, choices=AGGS, default=AGG,
+                        help="statistic used for aggregating trajectories and choosing the optimal one")
     parser.add_argument("--compare-precond", action="store_true",
                         help="compare precond mode (logs should contain runs with precond and without)")
     args = parser.parse_args()
+
+    # @XXX: BAD!
+    EP_DILUTION = args.dilute
+    AGG = args.agg
 
     ### HYPERPARAMS_DICT should be edited manually at the top, sorry ###
     if not os.path.isdir(args.plotdir):
