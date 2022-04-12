@@ -7,26 +7,22 @@ from itertools import product
 from random import random
 from train import *
 
-#LOG_DIR = "logs_precond"
-LOG_DIR = "logs_combined_adam"
+LOG_DIR = "logs_new_combined+adam"
 
 T = 50
-SEEDS = (123,)
+SEEDS = (123,124,125)
 #DATASETS = ("covtype", "ijcnn1", "news20", "rcv1",)
 DATASETS = ("a9a", "w8a", "rcv1", "real-sim")
-#OPTIMIZERS = ("SGD", "SARAH", "L-SVRG")
-OPTIMIZERS = ("Adam",)
+OPTIMIZERS = ("SGD", "Adam", "SARAH", "L-SVRG")
 #BATCH_SIZES = (128, 512, 2048)
 BATCH_SIZES = (128,)
 GAMMAS = (2**i for i in range(-16, 3, 2))
 LAMBDAS = (0.0,)
 PS = (0.99,)
-#PRECONDS = (None, "hutchinson")
-PRECONDS = (None,)
+PRECONDS = (None, "hutchinson")
 BETAS = (0.999,)
-#ALPHAS = (1e-1, 1e-3, 1e-5, 1e-7, 1e-9)
-ALPHAS = (1e-3,)
-CORRUPT = ([-3,0], [0,3], [-3,3])
+ALPHAS = (1e-1, 1e-3, 1e-5, 1e-7)
+CORRUPT = (None, [-3,0], [0,3], [-3,3])
 
 DRY_RUN = False
 
@@ -66,6 +62,9 @@ def main():
 
     for seed, dataset, optimizer, BS, gamma, lam, p,\
             precond, beta, alpha, corrupt in HYPERPARAM_GRID:
+        # Adam has its own preconditioning
+        if optimizer == "Adam":
+            precond = None
         # Create log file name in a way that remembers all args
         args_str = f"seed={seed},BS={BS},gamma={gamma},lam={lam}"
         if optimizer == "L-SVRG":
@@ -93,7 +92,7 @@ def main():
                          beta=beta,
                          corrupt=corrupt,
                          dataset=dataset,
-                         T=T,
+                         T=T + T if optimizer in ("SGD", "Adam") else T,
                          gamma=gamma,
                          lam=lam,
                          optimizer=optimizer,
