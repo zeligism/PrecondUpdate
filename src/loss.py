@@ -2,12 +2,12 @@
 import numpy as np
 import torch
 from scipy import sparse
-from numba import njit
 
 NUMBA = False
 SMALL = 1e-4
 
-def slice(X,y,i):
+
+def slice(X, y, i):
     if i is None:
         return X, y
     if isinstance(i, int):
@@ -15,24 +15,40 @@ def slice(X,y,i):
     return X[i,:], y[i]
 
 
-@njit
-def logistic_loss_njit(X,iX,jX,y,w):
-    raise NotImplementedError()
+class LogisticLoss:
+    def __init__(self, X, y):
+        self.X = X
+        self.y = y
+        self.num_data = X.shape[0]
+        self.dim = X.shape[1]
 
+    def __call__(w, i=None):
+        self.func(w, i)
 
-@njit
-def logistic_loss_grad_njit(X,iX,jX,y,w):
-    raise NotImplementedError()
+    def pred(self, w, i=None):
+        # prediction: correct if > 0, wrong otherwise
+        X, y = slice(self.X, self.y, i)
+        return y * X.dot(w)
 
+    def func(self, w, i=None):
+        X, y = slice(self.X, self.y, i)
+        return logistic_loss(X,y,w)
 
-@njit
-def logistic_loss_hessian_njit(X,iX,jX,y,w):
-    raise NotImplementedError()
+    def grad(self, w, i=None):
+        X, y = slice(self.X, self.y, i)
+        return logistic_loss_grad(X,y,w)
 
+    def hessian(self, w, i=None):
+        X, y = slice(self.X, self.y, i)
+        return logistic_loss_hessian(X,y,w)
 
-@njit
-def logistic_loss_hvp_njit(X,iX,jX,y,w,v):
-    raise NotImplementedError()
+    def hessian_diag(self, w, i=None):
+        X, y = slice(self.X, self.y, i)
+        return logistic_loss_hessian_diag(X,y,w)
+
+    def hvp(self, w, v, i=None):
+        X, y = slice(self.X, self.y, i)
+        return logistic_loss_hvp(X,y,w,v)
 
 
 def logistic_loss(X,y,w, M=25):
