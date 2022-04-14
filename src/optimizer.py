@@ -12,8 +12,9 @@ def collect_data(ep,X,y,w, lam=0.0, D=None, D_ratio=0.0):
     g_norm = np.linalg.norm(grad(X,y,w))**2
     error = np.mean(X.dot(w) * y < 0)  # wrong prediction -> 100% error
     error += 0.5 * np.mean(X.dot(w) * y == 0)  # ambiguous prediction -> 50% error
-    H_diag = hessian_diag(X,y,w)
-    H_diag_err = np.linalg.norm(D - H_diag) / np.linalg.norm(H_diag)
+    #H_diag = hessian_diag(X,y,w)
+    #H_diag_err = np.linalg.norm(D - H_diag) / np.linalg.norm(H_diag)
+    H_diag_err = 0
     return (ep, loss, g_norm, error, D_ratio, H_diag_err)
 
 
@@ -73,7 +74,7 @@ def OASIS(X, y, T=10000, BS=1, gamma=1.0, beta=0.99, lam=0.0, alpha=1e-5, adapti
     ep = 0  # count effective (full) passes through dataset
     data = []
     w = np.zeros(X.shape[1])
-    w_prev = w[:]
+    w_prev = np.array(w)
     theta = 1e100
 
     D = init_diagonal(X,y,w,BS, alpha=alpha, precond=precond,
@@ -110,8 +111,8 @@ def OASIS(X, y, T=10000, BS=1, gamma=1.0, beta=0.99, lam=0.0, alpha=1e-5, adapti
             theta = gamma / gamma_prev
 
         # update
-        w_prev = w[:]
-        w -= gamma * D**-1 * g
+        w_prev[:] = w[:]
+        w -= gamma * (D**-1 * g)
 
         if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
             data.append(collect_data(ep,X,y,w,lam,D,D_ratio))
@@ -125,8 +126,8 @@ def SGD(X, y, T=10000, BS=1, gamma=0.0002, beta=0.999, lam=0.0, alpha=1e-5,
     data = []
     w = np.zeros(X.shape[1])
     if adam:
-        m = w[:]
-        v = w[:]
+        m = np.zeros_like(w)
+        v = np.zeros_like(w)
 
     D = init_diagonal(X,y,w,BS, alpha=alpha, precond=precond,
                       precond_warmup=precond_warmup, precond_zsamples=precond_zsamples)
@@ -154,9 +155,9 @@ def SGD(X, y, T=10000, BS=1, gamma=0.0002, beta=0.999, lam=0.0, alpha=1e-5,
             m_corr = m / (1 - momentum**(it+1))
             v_corr = v / (1 - beta**(it+1))
             D_mix = np.sqrt(v_corr) + D
-            w -= gamma * D_mix**-1 * m_corr
+            w -= gamma * (D_mix**-1 * m_corr)
         else:
-            w -= gamma * D**-1 * g
+            w -= gamma * (D**-1 * g)
 
         # Update data
         if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
@@ -170,6 +171,7 @@ def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
     ep = 0  # count effective (full) passes through dataset
     data = []
     wn = np.zeros(X.shape[1])
+    wp = np.array(wn)
 
     D = init_diagonal(X,y,wn,BS, alpha=alpha, precond=precond,
                       precond_warmup=precond_warmup, precond_zsamples=precond_zsamples)
@@ -178,10 +180,10 @@ def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
 
     for epoch in range(T):
         g_full = grad(X,y,wn,lam=lam)
-        g = g_full[:]
+        g = g_full
         ep += 1
         nv0 = np.linalg.norm(g)
-        wp = wn[:]
+        wp[:] = wn[:]
 
         for it in range(10**10):
             # Calculate gradients
@@ -202,8 +204,8 @@ def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
             D_ratio = np.mean(D > alpha)
 
             # Update rule
-            wp = wn[:]
-            wn -= gamma * D**-1 * g
+            wp[:] = wn[:]
+            wn -= gamma * (D**-1 * g)
 
             # Update data
             freq = X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)
@@ -223,6 +225,7 @@ def SVRG(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
     ep = 0  # count effective (full) passes through dataset
     data = []
     w_out = np.zeros(X.shape[1])
+    w_in = np.array(w_out)
 
     D = init_diagonal(X,y,w_out,BS, alpha=alpha, precond=precond,
                       precond_warmup=precond_warmup, precond_zsamples=precond_zsamples)
@@ -233,7 +236,7 @@ def SVRG(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
         g_full = grad(X,y,w_out,lam=lam)
         ep += 1
         nv0 = np.linalg.norm(g_full)
-        w_in = w_out[:]
+        w_in[:] = w_out[:]
 
         for it in range(10**10):
             # Calculate gradients
@@ -254,7 +257,7 @@ def SVRG(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
             D_ratio = np.mean(D > alpha)
 
             # Update rule
-            w_in -= gamma * D**-1 * g
+            w_in -= gamma * (D**-1 * g)
 
             # Update data
             if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
@@ -262,7 +265,7 @@ def SVRG(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
 
             # Inner loop stopping criterion
             if nv < 0.1 * nv0 or it > X.shape[0] // BS:
-                w_out = w_in[:]
+                w_out[:] = w_in[:]
                 break
 
     return w_in, np.array(data)
@@ -273,7 +276,7 @@ def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, p=0.
     ep = 0  # count effective (full) passes through dataset
     data = []
     w_out = np.zeros(X.shape[1])
-    w_in = w_out[:]
+    w_in = np.array(w_out)
     g_full = grad(X,y,w_out,lam=lam)
 
     D = init_diagonal(X,y,w_out,BS, alpha=alpha, precond=precond,
@@ -303,12 +306,12 @@ def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, p=0.
         # Inner loop stopping criterion is now for updating w_out
         # and comes before the update rule @XXX: move after update data?
         if np.random.rand(1)[0] > p:
-            w_out = w_in[:]
+            w_out[:] = w_in[:]
             g_full = grad(X,y,w_out,lam=lam)
             ep += 1
 
         # Update rule
-        w_in -= gamma * D**-1 * g
+        w_in -= gamma * (D**-1 * g)
 
         # Update data
         if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
@@ -321,8 +324,8 @@ def Adam(X, y, T=10000, BS=1, gamma=0.2, beta1=0.9, beta2=0.999, eps=1e-8, **_):
     ep = 0  # count effective (full) passes through dataset
     data = []
     w = np.zeros(X.shape[1])
-    m = w[:]
-    v = w[:]
+    m = np.zeros_like(w)
+    v = np.zeros_like(w)
     data.append(collect_data(ep,X,y,w,0.,0.,0.))
 
     for it in range(T * (X.shape[0] // BS)):
