@@ -16,9 +16,10 @@ def slice(X, y, i):
 
 
 class LogisticLoss:
-    def __init__(self, X, y):
+    def __init__(self, X, y, weight_decay=0):
         self.X = X
         self.y = y
+        self.weight_decay = weight_decay
         self.num_data = X.shape[0]
         self.dim = X.shape[1]
 
@@ -28,27 +29,42 @@ class LogisticLoss:
     def pred(self, w, i=None):
         # prediction: correct if > 0, wrong otherwise
         X, y = slice(self.X, self.y, i)
-        return y * X.dot(w)
+        return X.dot(w) * y
 
     def func(self, w, i=None):
         X, y = slice(self.X, self.y, i)
-        return logistic_loss(X,y,w)
+        loss = logistic_loss(X,y,w)
+        if self.weight_decay != 0:
+            loss += self.weight_decay * np.linalg.norm(w)**2
+        return loss
 
     def grad(self, w, i=None):
         X, y = slice(self.X, self.y, i)
-        return logistic_loss_grad(X,y,w)
+        g = logistic_loss_grad(X,y,w)
+        if self.weight_decay != 0:
+            loss += self.weight_decay * w
+        return g
 
     def hessian(self, w, i=None):
         X, y = slice(self.X, self.y, i)
-        return logistic_loss_hessian(X,y,w)
+        h = logistic_loss_hessian(X,y,w)
+        if self.weight_decay != 0:
+            h += self.weight_decay * np.identity(like=w)
+        return h
 
     def hessian_diag(self, w, i=None):
         X, y = slice(self.X, self.y, i)
-        return logistic_loss_hessian_diag(X,y,w)
+        h_diag = logistic_loss_hessian_diag(X,y,w)
+        if self.weight_decay != 0:
+            h_diag += self.weight_decay
+        return h_diag
 
     def hvp(self, w, v, i=None):
         X, y = slice(self.X, self.y, i)
-        return logistic_loss_hvp(X,y,w,v)
+        hvp = logistic_loss_hvp(X,y,w,v)
+        if self.weight_decay != 0:
+            hvp += self.weight_decay * v
+        return hvp
 
 
 def logistic_loss(X,y,w, M=25):
