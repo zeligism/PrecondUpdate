@@ -13,7 +13,7 @@ from itertools import cycle, product
 from collections import defaultdict
 MARKERS = (',', '+', '.', 'o', '*', "D")
 METRICS = ("loss", "gradnorm", "error")
-AGGS = ("median", "mean")
+AGGS = ("mean", "median")
 LOSS = METRICS.index("loss") + 1
 GRADNORM = METRICS.index("gradnorm") + 1
 ERROR = METRICS.index("error") + 1
@@ -42,8 +42,8 @@ HYPERPARAMS_DICT = {
 
 # These are always clearly worse than optimal, so just ignore them to avoid clutter
 IGNORE_HYPERPARAMS = {
-    #"alpha": [1e-9],
-    "alpha": [1e-1, 1e-3, 1e-7, 1e-9],
+    "alpha": [1e-9],
+    #"alpha": [1e-1, 1e-3, 1e-7, 1e-9],
     "BS": [2048],
     "gamma": [2**-16, 2**-18, 2**-20],
 }
@@ -132,7 +132,7 @@ def savefig2(data, fname, title="Loss, gradient norm squared, and error"):
         plt.ylabel("Relative Error")
         plt.xlabel("Effective Passes")
         plt.grid()
-        plt.savefig("H_diag_err_t.png")
+        plt.savefig("H_diag_err_t.pdf")
         plt.close()
 
 
@@ -147,7 +147,7 @@ def plot_hessian_acc(H_diag, D):
     plt.xlabel(r"$diag(H(w_0))$")
     plt.ylabel(r"$D_0$")
     plt.legend()
-    plt.savefig("H_vs_D.png")
+    plt.savefig("H_vs_D.pdf")
     plt.close()
 
 
@@ -159,7 +159,7 @@ def plot_hessian_approx(H_diag_errs):
     plt.ylabel(r"Relative Error")
     plt.xlabel(r"Number of Samples")
     plt.grid()
-    plt.savefig("H_diag_err_0.png")
+    plt.savefig("H_diag_err_0.pdf")
     plt.close()
 
 
@@ -321,7 +321,7 @@ def plot_all_hyperparams(data_dict, **filter_args):
                 axes[i,j].legend(fontsize=10, loc=1, prop={'size': 7})
     fig.tight_layout()
 
-    plt.savefig(f"plots/lr({filter_args_str}).png")
+    plt.savefig(f"plots/lr({filter_args_str}).pdf")
     plt.close()
 
 
@@ -355,7 +355,7 @@ def sns_plot_all_hyperparams(data_dict, **filter_args):
             axes[i,j].set_xlabel("Effective Passes")
     fig.tight_layout()
 
-    plt.savefig(f"plots/lr({filter_args_str}).png")
+    plt.savefig(f"plots/lr({filter_args_str}).pdf")
     plt.close()
 
 
@@ -401,7 +401,7 @@ def plot_optimal_hyperparams(best_data, **filter_args):
         axes[2,j].legend()
 
     fig.tight_layout()
-    plt.savefig(f"plots/optimizers({filter_args_str}).png")
+    plt.savefig(f"plots/optimizers({filter_args_str}).pdf")
     plt.close()
 
 
@@ -448,7 +448,7 @@ def sns_plot_optimal_hyperparams(best_data, **filter_args):
         axes[2,j].legend()
 
     fig.tight_layout()
-    plt.savefig(f"plots/optimizers({filter_args_str}).png")
+    plt.savefig(f"plots/optimizers({filter_args_str}).pdf")
     plt.close()
 
 
@@ -517,7 +517,7 @@ def generate_plots_compare_precond(hp_dict, metric, logdir):
             axes[2,j].set_xlabel("Effective Passes")
 
         fig.tight_layout()
-        plt.savefig(f"plots/compare_optimizers({filter_args_str}).png")
+        plt.savefig(f"plots/compare_optimizers({filter_args_str}).pdf")
         plt.close()
 
         metric_name = (None, "loss", "gradnorm", "error")[metric]
