@@ -3,7 +3,6 @@ import numpy as np
 import torch
 from scipy import sparse
 
-NUMBA = False
 SMALL = 1e-4
 
 
@@ -19,9 +18,10 @@ class LogisticLoss:
     def __init__(self, X, y, weight_decay=0):
         self.X = X
         self.y = y
-        self.weight_decay = weight_decay
         self.num_data = X.shape[0]
         self.dim = X.shape[1]
+        # @TODO: divide by N?
+        self.weight_decay = weight_decay / self.num_data
 
     def __call__(w, i=None):
         self.func(w, i)
