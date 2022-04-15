@@ -1,5 +1,6 @@
 
-from loss import F, grad, hessian, hessian_diag, hvp, LogisticLoss
+#from loss import F, grad, hessian, hessian_diag, hvp
+from loss import LogisticLoss
 from plot import plot_hessian_acc, plot_hessian_approx
 
 import numpy as np
@@ -19,12 +20,12 @@ class Preconditioner:
     TYPES = ("none", "hessian", "hutchinson", "adam", "adagrad", "adadelta", "rmsprop", "momentum")
 
     def __init__(self, precond="hutchinson",
-                 beta1=0.0, beta2=0.999, beta=None, alpha=1e-5,
+                 beta1=0.0, beta2=0.999, alpha=1e-5,
                  precond_warmup=10, precond_resample=False, precond_zsamples=1,):
         self.precond_type = "none" if precond is None else precond.lower()
         assert self.precond_type in Preconditioner.TYPES
         self.beta1 = beta1
-        self.beta2 = beta if beta is not None else beta2
+        self.beta2 = beta2
         self.alpha = alpha
         self.warmup = precond_warmup
         self.resample = precond_resample
@@ -33,6 +34,7 @@ class Preconditioner:
         self.diagonal = 1.0
 
     def init(self, w, loss, BS, plot_stats=False):
+        # @TODO: option for plot_stats
         self.t = 0
         if self.precond_type == "hessian":
             D = loss.hessian_diag(w)
@@ -99,6 +101,7 @@ class Preconditioner:
         elif self.precond_type == "hutchinson":
             # estimate hessian diagonal
             D = 0.0
+            # @TODO: option for beta -> 1
             #self.beta2 = 1 - 1 / (self.t + 1)
             for _ in range(self.zsamples):
                 z = 2 * sample_bernoulli(w.shape) - 1
@@ -224,11 +227,11 @@ class SGD:
         error = np.mean(prediction < 0)  # wrong prediction -> 100% error
         error += 0.5 * np.mean(prediction == 0)  # ambiguous prediction -> 50% error
 
-        # Preconditioner statistics
+        # Preconditioner statistics @TODO: when should we report this?
         if self.precond is not None:
             D_ratio = np.mean(self.precond.diagonal > self.precond.alpha)
-            #H_diag = self.loss.hessian_diag(self.w)
-            #H_diag_err = np.linalg.norm(self.precond.diagonal - H_diag) / np.linalg.norm(H_diag)
+            # H_diag = self.loss.hessian_diag(self.w)
+            # H_diag_err = np.linalg.norm(self.precond.diagonal - H_diag) / np.linalg.norm(H_diag)
             H_diag_err = 0.0
         else:
             D_ratio = H_diag_err = 0.0
@@ -286,25 +289,18 @@ class SVRG(SGD):
         return g
 
 
-class PAGE(SVRG):
-    def __init__(self, w, loss, p=0.99, **kwargs):
-        super().__init__(w, loss, **kwargs)
-        # SGD: p=0,  PAGE: 0<p<1,  SARAH, p=1
-        # SARAH/PAGE is different from SVRG only in calculating g_full
-        self.p = p
+class SARAH(SVRG):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def step(self):
+        # Grad
         i = np.random.choice(self.N, self.BS)
         self.ep += self.BS / self.N
-
-        # Grad
-        if self.p == 1 or sample_uniform() < self.p:
-            g_in = self.loss.grad(self.w, i)
-            g_out = self.loss.grad(self.w_out, i)
-            self.g_full += g_in - g_out
-            g = self.g_full
-        else:
-            g = self.loss.grad(self.w, i)
+        g_in = self.loss.grad(self.w, i)
+        g_out = self.loss.grad(self.w_out, i)
+        self.g_full += g_in - g_out
+        g = self.g_full
 
         # Update
         self.w_out[:] = self.w[:]
@@ -313,12 +309,6 @@ class PAGE(SVRG):
         self.t += 1
 
         return g
-
-
-class SARAH(PAGE):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.p = 1
 
 
 class LSVRG(SVRG):
@@ -349,6 +339,60 @@ class LSVRG(SVRG):
         return self.w, self.history
 
 
+class PAGE(SGD):
+    # @TODO: option for g_batch
+    def __init__(self, w, loss, p=0.99, g_batch=None, **kwargs):
+        super().__init__(w, loss, **kwargs)
+        # PAGE generalizes SARAH and SGD
+        # p is opposite to the definition, just to make it more similar to L-SVRG
+        # g_batch is the size of the batch on which g_full is estimated
+        self.p = p
+        self.g_batch = g_batch
+        # Checkpoint weights
+        self.w_out = np.array(self.w)
+        # Estimate of full batch gradient on outer loop weights
+        self.g_full = None
+
+    def update_full_grad(self):
+        if self.g_batch is None:
+            i = None
+            self.ep += 1
+        else:
+            i = np.random.choice(self.N, self.g_batch)
+            self.ep += self.BS / self.N
+        self.g_full = self.loss.grad(self.w_out, i)
+
+        return self.g_full
+
+    def init_run(self):
+        super().init_run()
+        # Update full batch gradient
+        self.update_full_grad()
+
+    def step(self):
+        i = np.random.choice(self.N, self.BS)
+        self.ep += self.BS / self.N
+
+        # Grad
+        if self.p == 1 or sample_uniform() < self.p:
+            # SARAH
+            g_in = self.loss.grad(self.w, i)
+            g_out = self.loss.grad(self.w_out, i)
+            self.g_full += g_in - g_out
+            g = self.g_full
+        else:
+            # GD
+            g = self.update_full_grad()
+
+        # Update
+        self.w_out[:] = self.w[:]
+        precond_g = self.precond_grad(g, i)
+        self.w -= self.lr * precond_g
+        self.t += 1
+
+        return g
+
+
 class Adam(SGD):
     def __init__(self, w, loss, BS=1, lr=0.001, lr_decay=0, beta1=0.9, beta2=0.999, eps=1e-8):
         super().__init__(w, loss, BS=BS, lr=lr, lr_decay=lr_decay)
@@ -367,65 +411,65 @@ class Adadelta(SGD):
         self.precondition("adadelta", beta2=rho, alpha=eps)
 
 
-######################################################################
+###############################################################################
+# Utility functions for running experiments using logistic loss with w0 = 0
 
-def run_SGD(X, y, T=10000, BS=1, gamma=0.2, lr_decay=0, lam=0, **precond_args):
+def run_SGD(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, **precond_args):
     w = np.zeros(X.shape[1])
-    loss = LogisticLoss(X, y, weight_decay=lam)
-    optim = SGD(w, loss, BS=BS, lr=gamma, lr_decay=lr_decay)
+    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+    optim = SGD(w, loss, BS=BS, lr=lr, lr_decay=lr_decay)
     optim = optim.precondition(**precond_args)
     return optim.run(T)
 
 
-def run_SVRG(X, y, T=10000, BS=1, gamma=0.2, lr_decay=0, lam=0, inner_loop=1.0, **precond_args):
+def run_SVRG(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, inner_loop=1.0, **precond_args):
     w = np.zeros(X.shape[1])
-    loss = LogisticLoss(X, y, weight_decay=lam)
-    optim = SVRG(w, loss, BS=BS, lr=gamma, lr_decay=lr_decay, inner_loop=inner_loop)
+    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+    optim = SVRG(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, inner_loop=inner_loop)
     optim = optim.precondition(**precond_args)
     return optim.run(T)
 
 
-def run_LSVRG(X, y, T=10000, BS=1, gamma=0.2, lr_decay=0, lam=0, p=0.99, **precond_args):
+def run_LSVRG(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, p=0.99, **precond_args):
     w = np.zeros(X.shape[1])
-    loss = LogisticLoss(X, y, weight_decay=lam)
-    optim = LSVRG(w, loss, BS=BS, lr=gamma, lr_decay=lr_decay, p=p)
+    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+    optim = LSVRG(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, p=p)
     optim = optim.precondition(**precond_args)
     return optim.run(T)
 
 
-def run_PAGE(X, y, T=10000, BS=1, gamma=0.2, lr_decay=0, lam=0, p=0.99, **precond_args):
+def run_PAGE(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, p=0.99, **precond_args):
     w = np.zeros(X.shape[1])
-    loss = LogisticLoss(X, y, weight_decay=lam)
-    optim = PAGE(w, loss, BS=BS, lr=gamma, lr_decay=lr_decay, p=p)
+    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+    optim = PAGE(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, p=p)
     optim = optim.precondition(**precond_args)
     return optim.run(T)
 
 
-def run_SARAH(X, y, T=10000, BS=1, gamma=0.2, lr_decay=0, lam=0, **precond_args):
+def run_SARAH(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, **precond_args):
     w = np.zeros(X.shape[1])
-    loss = LogisticLoss(X, y, weight_decay=lam)
-    optim = SARAH(w, loss, BS=BS, lr=gamma, lr_decay=lr_decay)
+    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+    optim = SARAH(w, loss, BS=BS, lr=lr, lr_decay=lr_decay)
     optim = optim.precondition(**precond_args)
     return optim.run(T)
 
 
-def run_Adam(X, y, T=10000, BS=1, gamma=0.2, lr_decay=0, lam=0, beta1=0.9, beta2=0.999, alpha=1e-8, **_):
+def run_Adam(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, beta1=0.9, beta2=0.999, alpha=1e-8, **_):
     w = np.zeros(X.shape[1])
-    loss = LogisticLoss(X, y, weight_decay=lam)
-    optim = Adam(w, loss, BS=BS, lr=gamma, lr_decay=lr_decay, beta1=beta1, beta2=beta2, eps=alpha)
+    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+    optim = Adam(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, beta1=beta1, beta2=beta2, eps=alpha)
     return optim.run(T)
 
 
-def run_Adagrad(X, y, T=10000, BS=1, gamma=0.2, lr_decay=0, lam=0, alpha=1e-10, **_):
+def run_Adagrad(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, alpha=1e-10, **_):
     w = np.zeros(X.shape[1])
-    loss = LogisticLoss(X, y, weight_decay=lam)
-    optim = Adagrad(w, loss, BS=BS, lr=gamma, lr_decay=lr_decay, eps=alpha)
+    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+    optim = Adagrad(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, eps=alpha)
     return optim.run(T)
 
 
-def run_Adadelta(X, y, T=10000, BS=1, gamma=1.0, lr_decay=0, lam=0, beta2=0.9, alpha=1e-6, **_):
+def run_Adadelta(X, y, T=10000, BS=1, lr=1.0, lr_decay=0, weight_decay=0, beta2=0.9, alpha=1e-6, **_):
     w = np.zeros(X.shape[1])
-    loss = LogisticLoss(X, y, weight_decay=lam)
-    optim = Adadelta(w, loss, BS=BS, lr=gamma, lr_decay=lr_decay, rho=beta2, eps=alpha)
+    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+    optim = Adadelta(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, rho=beta2, eps=alpha)
     return optim.run(T)
-
