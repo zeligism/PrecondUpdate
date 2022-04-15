@@ -11,8 +11,8 @@ from joblib import Memory
 from sklearn.datasets import load_svmlight_file
 from sklearn.preprocessing import normalize
 
-import optimizer as OLD
-from optimizer_new import *
+import optimizer_old as OLD
+from optimizer import *
 from plot import *
 
 mem = Memory("./mycache")

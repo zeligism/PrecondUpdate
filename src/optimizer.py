@@ -1,350 +1,475 @@
 
-from loss import F, grad, hessian_diag, hvp
+#from loss import F, grad, hessian, hessian_diag, hvp
+from loss import LogisticLoss
 from plot import plot_hessian_acc, plot_hessian_approx
 
 import numpy as np
 
-DATA_FREQ_PER_EPOCH = 5
+
+def sample_uniform(size=1):
+    return np.random.rand(size)
 
 
-def collect_data(ep,X,y,w, lam=0.0, D=None, D_ratio=0.0):
-    loss = F(X,y,w)
-    g_norm = np.linalg.norm(grad(X,y,w))**2
-    error = np.mean(X.dot(w) * y < 0)  # wrong prediction -> 100% error
-    error += 0.5 * np.mean(X.dot(w) * y == 0)  # ambiguous prediction -> 50% error
-    #H_diag = hessian_diag(X,y,w)
-    #H_diag_err = np.linalg.norm(D - H_diag) / np.linalg.norm(H_diag)
-    H_diag_err = 0
-    return (ep, loss, g_norm, error, D_ratio, H_diag_err)
+def sample_bernoulli(size=1):
+    return np.random.randint(0, 2, size)
 
 
-def sample_z(size):
-    return 2 * np.random.randint(0,2,size) - 1
+# @TODO: separate into multiple objects
+class Preconditioner:
+    # Type of possible preconditioners
+    TYPES = ("none", "hessian", "hutchinson", "adam", "adagrad", "adadelta", "rmsprop", "momentum")
+
+    def __init__(self, precond="hutchinson",
+                 beta1=0.0, beta2=0.999, alpha=1e-5,
+                 precond_warmup=10, precond_resample=False, precond_zsamples=1,):
+        self.precond_type = "none" if precond is None else precond.lower()
+        assert self.precond_type in Preconditioner.TYPES
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.alpha = alpha
+        self.warmup = precond_warmup
+        self.resample = precond_resample
+        self.zsamples = precond_zsamples
+        self.t = None
+        self.diagonal = 1.0
+
+    def init(self, w, loss, BS, plot_stats=False):
+        # @TODO: option for plot_stats
+        self.t = 0
+        if self.precond_type == "hessian":
+            D = loss.hessian_diag(w)
+            D = np.maximum(np.abs(D), self.alpha)
+            self.diagonal = D
+
+        elif self.precond_type == "hutchinson":
+            assert 0. < self.beta2 and self.beta2 <= 1.
+            if plot_stats:
+                D_true = loss.hessian_diag(w)
+                D_errors = []
+            D = 0.
+            N = self.warmup * self.zsamples
+            for _ in range(self.warmup):
+                i = np.random.choice(loss.num_data, BS)
+                for _ in range(self.zsamples):
+                    z = 2 * sample_bernoulli(w.shape) - 1
+                    D += z * loss.hvp(w, z, i) / N
+                    if plot_stats:
+                        rel_error = np.linalg.norm(D - D_true) / np.linalg.norm(D_true)
+                        D_errors.append(rel_error)
+            D = np.maximum(np.abs(D), self.alpha)
+            self.diagonal = D
+
+        elif self.precond_type == "momentum":
+            assert 0. < self.beta1 and self.beta1 <= 1.
+            self.m = np.zeros_like(w)
+
+        elif self.precond_type == "rmsprop":
+            assert 0. < self.beta2 and self.beta2 <= 1.
+            self.v = np.zeros_like(w)
+
+        elif self.precond_type == "adam":
+            assert 0. < self.beta1 and self.beta1 <= 1.
+            assert 0. < self.beta2 and self.beta2 <= 1.
+            self.m = np.zeros_like(w)
+            self.v = np.zeros_like(w)
+
+        elif self.precond_type == "adadelta":
+            assert 0. < self.beta2 and self.beta2 <= 1.
+            self.v = np.zeros_like(w)
+            self.u = np.zeros_like(w)
+
+        elif self.precond_type == "adagrad":
+            self.v = np.zeros_like(w)
+
+        else:
+            self.diagonal = np.ones_like(w)
+
+        # Shows how good the hutchinson approximation is
+        if self.precond_type == "hutchinson" and plot_stats:
+            plot_hessian_acc(D_true, D)
+            plot_hessian_approx(D_errors)
+
+    def update(self, w, loss, i, g):
+        self.t += 1
+        # Diagonal preconditioning
+        if self.precond_type == "hessian":
+            D = loss.hessian_diag(w)
+            D = np.maximum(np.abs(D), self.alpha)
+            self.diagonal = D
+            precond_g = self.diagonal**-1 * g
+
+        elif self.precond_type == "hutchinson":
+            # estimate hessian diagonal
+            D = 0.0
+            # @TODO: option for beta -> 1
+            #self.beta2 = 1 - 1 / (self.t + 1)
+            for _ in range(self.zsamples):
+                z = 2 * sample_bernoulli(w.shape) - 1
+                D += z * loss.hvp(w, z, i) / self.zsamples
+            D = np.abs(self.beta2 * self.diagonal + (1 - self.beta2) * D)
+            D = np.maximum(D, self.alpha)
+            self.diagonal = D
+            precond_g = self.diagonal**-1 * g
+
+        elif self.precond_type == "momentum":
+            self.m = self.beta1 * self.m + (1 - self.beta1) * g
+            precond_g = self.m
+
+        elif self.precond_type == "rmsprop":
+            self.v = self.beta2 * self.v + (1 - self.beta2) * g**2
+            self.diagonal = np.sqrt(self.v) + self.alpha
+            precond_g = self.diagonal**-1 * g
+
+        elif self.precond_type == "adam":
+            self.m = self.beta1 * self.m + (1 - self.beta1) * g
+            self.v = self.beta2 * self.v + (1 - self.beta2) * g**2
+            m_corr = self.m / (1 - self.beta1 ** self.t)
+            v_corr = self.v / (1 - self.beta2 ** self.t)
+            self.diagonal = np.sqrt(v_corr) + self.alpha
+            precond_g = self.diagonal**-1 * m_corr
+
+        elif self.precond_type == "adadelta":
+            self.v = self.beta2 * self.v + (1 - self.beta2) * g**2
+            self.diagonal = np.sqrt(self.v + self.alpha) / np.sqrt(self.u + self.alpha)
+            precond_g = self.diagonal**-1 * g
+            self.u = self.beta2 * self.u + (1 - self.beta2) * precond_g**2
+
+        elif self.precond_type == "adagrad":
+            self.v += g**2
+            self.diagonal = np.sqrt(self.v) + self.alpha
+            precond_g = self.diagonal**-1 * g
+
+        else:
+            precond_g = g
+
+        return precond_g
 
 
-def init_diagonal(X,y,w, BS, precond="hutchinson",
-                  precond_warmup=1, precond_zsamples=1, alpha=1e-7, full_batch_hvp=False,):
-    if precond == "hessian":
-        D = hessian_diag(X,y,w)
-    elif precond == "hutchinson":
-        # grad(w+z) - grad(w) approximates H(w)z
-        D = 0.
-        H_diag = hessian_diag(X,y,w)
-        H_diag_errs = []
-        N = precond_warmup * precond_zsamples
-        for _ in range(precond_warmup):
-            i = None if full_batch_hvp else np.random.choice(X.shape[0], BS)
-            for _ in range(precond_zsamples):
-                z = sample_z(w.shape)
-                D += z * hvp(X,y,w,z,i) / N
-                H_diag_errs.append(
-                    np.linalg.norm(D - H_diag) / np.linalg.norm(H_diag))
-        # plot_H_acc(H_diag, D)
-        # plot_H_approx(H_diag_errs)
-    else:
-        D = np.ones_like(w)
+class SGD:
+    def __init__(self, w, loss, BS=1, lr=0.0002, lr_decay=0, history_freq_per_epoch=5):
+        self.w = w
+        self.loss = loss
+        self.N = self.loss.num_data
+        self.BS = BS
+        self.base_lr = lr
+        self.lr_decay = lr_decay
+        self.history_freq_per_epoch = history_freq_per_epoch
+        self.reset_history()
+        self.ep = 0  # effective passes over dataset
+        self.t = 0  # num of updates/steps
+        self.precond = None  # preconditioner
 
-    D = np.abs(D)
-    D = np.maximum(D, alpha)
-    return D
+    def precondition(self, *args, **kwargs):
+        self.precond = Preconditioner(*args, **kwargs)
+        return self
+
+    def precond_grad(self, g, i):
+        if self.precond is not None:
+            if self.precond.resample:
+                i = np.random.choice(self.N, self.BS)
+                self.ep += self.BS / self.N
+            g = self.precond.update(self.w, self.loss, i, g)
+        return g
+
+    def init_run(self):
+        # Initialize preconditioner
+        if self.precond is not None:
+            self.precond.init(self.w, self.loss, self.BS)
+        # Record initial stats
+        self.update_history()
+
+    def run(self, T):
+        # Run training loop
+        self.init_run()
+        for it in range(T * (self.N // self.BS)):
+            self.step()
+            if it % (self.N // (self.BS * self.history_freq_per_epoch)) == 0:
+                self.update_history()
+
+        return self.w, self.history
+
+    def step(self):
+        # Grad
+        i = np.random.choice(self.N, self.BS)
+        self.ep += self.BS / self.N
+        g = self.loss.grad(self.w, i)
+
+        precond_g = self.precond_grad(g, i)
+        self.w -= self.lr * precond_g
+        self.t += 1
+
+        return g
+
+    @property
+    def lr(self):
+        if self.lr_decay != 0:
+            return self.base_lr / (1 + (self.t - 1) * self.lr_decay)
+        else:
+            return self.base_lr
+
+    @property
+    def history(self):
+        return np.array(self._history)
+
+    def reset_history(self):
+        self._history = []
+
+    def update_history(self):
+        self._history.append(self.stats())
+
+    def stats(self):
+        # loss and gradient
+        loss = self.loss.func(self.w)
+        g_norm = np.linalg.norm(self.loss.grad(self.w))**2
+
+        # Error
+        prediction = self.loss.pred(self.w)
+        error = np.mean(prediction < 0)  # wrong prediction -> 100% error
+        error += 0.5 * np.mean(prediction == 0)  # ambiguous prediction -> 50% error
+
+        # Preconditioner statistics @TODO: when should we report this?
+        if self.precond is not None:
+            D_ratio = np.mean(self.precond.diagonal > self.precond.alpha)
+            # H_diag = self.loss.hessian_diag(self.w)
+            # H_diag_err = np.linalg.norm(self.precond.diagonal - H_diag) / np.linalg.norm(H_diag)
+            H_diag_err = 0.0
+        else:
+            D_ratio = H_diag_err = 0.0
+
+        return (self.ep, loss, g_norm, error, D_ratio, H_diag_err)
 
 
-def update_diagonal(D, X, y, w, i, beta=0.999, lam=0.0, alpha=1e-5,
-                    precond="hutchinson", precond_zsamples=1):
-    # Diagonal preconditioning
-    if precond == "hessian":
-        # full hessian
-        D = hessian_diag(X,y,w,i=None,lam=lam)
-    elif precond == "hutchinson":
-        # estimate hessian diagonal
-        D_est = 0.0
-        for _ in range(precond_zsamples):
-            z = sample_z(w.shape)
-            D_est += z * hvp(X,y,w,z,i) / precond_zsamples
-        D = np.abs(beta * D + (1 - beta) * D_est) + lam
-    else:
-        D = np.ones_like(w)
+class SVRG(SGD):
+    def __init__(self, w, loss, inner_loop=1.0, **kwargs):
+        super().__init__(w, loss, **kwargs)
+        # Size of inner loop as a multiple of the dataset length
+        self.inner_loop = inner_loop
+        # Outer loop / checkpoint weights
+        self.w_out = np.array(self.w)
+        # Estimate of full batch gradient on outer loop weights
+        self.g_full = None
 
-    D = np.maximum(D, alpha)
-    return D
+    def run(self, T):
+        # Run training loop
+        self.init_run()
+        for epoch in range(T):
+            # Update full batch gradient
+            self.g_full = self.loss.grad(self.w_out)
+            self.ep += 1
+            gradnorm0 = np.linalg.norm(self.g_full)
+
+            for it in range(10**10):
+                g = self.step()
+
+                # Inner loop stopping criterion
+                if np.linalg.norm(g) < 0.1 * gradnorm0 \
+                        or it > (self.N // self.BS) * self.inner_loop:
+                    self.w_out[:] = self.w[:]
+                    self.update_history()
+                    break
+
+                if it % (self.N // (self.BS * self.history_freq_per_epoch)) == 0:
+                    self.update_history()
+
+        return self.w, self.history
+
+    def step(self):
+        # Grad
+        i = np.random.choice(self.N, self.BS)
+        self.ep += self.BS / self.N
+        g_in = self.loss.grad(self.w, i)
+        g_out = self.loss.grad(self.w_out, i)
+        g = self.g_full + g_in - g_out
+
+        # Update
+        precond_g = self.precond_grad(g, i)
+        self.w -= self.lr * precond_g
+        self.t += 1
+
+        return g
 
 
-def OASIS(X, y, T=10000, BS=1, gamma=1.0, beta=0.99, lam=0.0, alpha=1e-5, adaptive_gamma=True,
-          precond="hutchinson", precond_warmup=10, precond_resample=False, precond_zsamples=1):
-    ep = 0  # count effective (full) passes through dataset
-    data = []
+class SARAH(SVRG):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def step(self):
+        # Grad
+        i = np.random.choice(self.N, self.BS)
+        self.ep += self.BS / self.N
+        g_in = self.loss.grad(self.w, i)
+        g_out = self.loss.grad(self.w_out, i)
+        self.g_full += g_in - g_out
+        g = self.g_full
+
+        # Update
+        self.w_out[:] = self.w[:]
+        precond_g = self.precond_grad(g, i)
+        self.w -= self.lr * precond_g
+        self.t += 1
+
+        return g
+
+
+class LSVRG(SVRG):
+    def __init__(self, w, loss, p=0.99, **kwargs):
+        super().__init__(w, loss, **kwargs)
+        self.p = p
+
+    def run(self, T):
+        self.init_run()
+
+        # Update full batch gradient
+        self.g_full = self.loss.grad(self.w_out)
+        self.ep += 1
+
+        # Run training loop
+        for it in range(T * (self.N // self.BS)):
+            self.step()
+
+            # Checkpoint criterion (instead of inner loop stopping criterion)
+            if sample_uniform() > self.p:
+                self.w_out[:] = self.w[:]
+                self.g_full = self.loss.grad(self.w_out)
+                self.ep += 1
+
+            if it % (self.N // (self.BS * self.history_freq_per_epoch)) == 0:
+                self.update_history()
+
+        return self.w, self.history
+
+
+class PAGE(SGD):
+    # @TODO: option for g_batch
+    def __init__(self, w, loss, p=0.99, g_batch=None, **kwargs):
+        super().__init__(w, loss, **kwargs)
+        # PAGE generalizes SARAH and SGD
+        # p is opposite to the definition, just to make it more similar to L-SVRG
+        # g_batch is the size of the batch on which g_full is estimated
+        self.p = p
+        self.g_batch = g_batch
+        # Checkpoint weights
+        self.w_out = np.array(self.w)
+        # Estimate of full batch gradient on outer loop weights
+        self.g_full = None
+
+    def update_full_grad(self):
+        if self.g_batch is None:
+            i = None
+            self.ep += 1
+        else:
+            i = np.random.choice(self.N, self.g_batch)
+            self.ep += self.BS / self.N
+        self.g_full = self.loss.grad(self.w_out, i)
+
+        return self.g_full
+
+    def init_run(self):
+        super().init_run()
+        # Update full batch gradient
+        self.update_full_grad()
+
+    def step(self):
+        i = np.random.choice(self.N, self.BS)
+        self.ep += self.BS / self.N
+
+        # Grad
+        if self.p == 1 or sample_uniform() < self.p:
+            # SARAH
+            g_in = self.loss.grad(self.w, i)
+            g_out = self.loss.grad(self.w_out, i)
+            self.g_full += g_in - g_out
+            g = self.g_full
+        else:
+            # GD
+            g = self.update_full_grad()
+
+        # Update
+        self.w_out[:] = self.w[:]
+        precond_g = self.precond_grad(g, i)
+        self.w -= self.lr * precond_g
+        self.t += 1
+
+        return g
+
+
+class Adam(SGD):
+    def __init__(self, w, loss, BS=1, lr=0.001, lr_decay=0, beta1=0.9, beta2=0.999, eps=1e-8):
+        super().__init__(w, loss, BS=BS, lr=lr, lr_decay=lr_decay)
+        self.precondition("adam", beta1=beta1, beta2=beta2, alpha=eps)
+
+
+class Adagrad(SGD):
+    def __init__(self, w, loss, BS=1, lr=0.01, lr_decay=0, eps=1e-10, *args, **kwargs):
+        super().__init__(w, loss, BS=BS, lr=lr, lr_decay=lr_decay)
+        self.precondition("adagrad", alpha=eps)
+
+
+class Adadelta(SGD):
+    def __init__(self, w, loss, BS=1, lr=1.0, lr_decay=0, rho=0.9, eps=1e-6, *args, **kwargs):
+        super().__init__(w, loss, BS=BS, lr=lr, lr_decay=lr_decay)
+        self.precondition("adadelta", beta2=rho, alpha=eps)
+
+
+###############################################################################
+# Utility functions for running experiments using logistic loss with w0 = 0
+
+def run_SGD(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, **precond_args):
     w = np.zeros(X.shape[1])
-    w_prev = np.array(w)
-    theta = 1e100
-
-    D = init_diagonal(X,y,w,BS, alpha=alpha, precond=precond,
-                      precond_warmup=precond_warmup, precond_zsamples=precond_zsamples)
-    D_ratio = np.mean(D > alpha)
-    data.append(collect_data(ep,X,y,w,lam,D,D_ratio))
-
-    for it in range(T * (X.shape[0] // BS)):
-        # Calculate gradients
-        i = np.random.choice(X.shape[0], BS)
-        g = grad(X,y,w,i,lam=lam)
-        ep += BS / X.shape[0]
-
-        if precond == "hutchinson" and precond_resample:
-            j = np.random.choice(X.shape[0], BS)
-            ep += BS / X.shape[0]
-        else:
-            j = i
-
-        D = update_diagonal(D,X,y,w,j, beta=beta, lam=lam, alpha=alpha,
-                            precond=precond, precond_zsamples=precond_zsamples)
-        D_ratio = np.mean(D > alpha)
-
-        # adaptive learning rate
-        if adaptive_gamma and it > 0:
-            g_prev = grad(X,y,w_prev,i,lam=lam)
-            gamma_prev = gamma
-            gamma = gamma * np.sqrt(1 + theta)
-            gamma_est = 0.5 * np.sqrt(
-                np.sum(D * (w - w_prev)**2) / (np.sum(D**-1 * (g - g_prev)**2))
-            )
-            if gamma_est < gamma:
-                gamma = gamma_est
-            theta = gamma / gamma_prev
-
-        # update
-        w_prev[:] = w[:]
-        w -= gamma * (D**-1 * g)
-
-        if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
-            data.append(collect_data(ep,X,y,w,lam,D,D_ratio))
-    return w, np.array(data)
+    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+    optim = SGD(w, loss, BS=BS, lr=lr, lr_decay=lr_decay)
+    optim = optim.precondition(**precond_args)
+    return optim.run(T)
 
 
-def SGD(X, y, T=10000, BS=1, gamma=0.0002, beta=0.999, lam=0.0, alpha=1e-5,
-        precond="hutchinson", precond_warmup=10, precond_resample=False, precond_zsamples=1,
-        momentum=0.0, adam=False):
-    ep = 0  # count effective (full) passes through dataset
-    data = []
+def run_SVRG(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, inner_loop=1.0, **precond_args):
     w = np.zeros(X.shape[1])
-    if adam:
-        m = np.zeros_like(w)
-        v = np.zeros_like(w)
-
-    D = init_diagonal(X,y,w,BS, alpha=alpha, precond=precond,
-                      precond_warmup=precond_warmup, precond_zsamples=precond_zsamples)
-    D_ratio = np.mean(D > alpha)
-    data.append(collect_data(ep,X,y,w,lam,D,D_ratio))
-
-    for it in range(T * (X.shape[0] // BS)):
-        # Calculate gradients
-        i = np.random.choice(X.shape[0], BS)
-        g = grad(X,y,w,i,lam=lam)
-        ep += BS / X.shape[0]
-
-        if precond == "hutchinson" and precond_resample:
-            j = np.random.choice(X.shape[0], BS)
-            ep += BS / X.shape[0]
-        else:
-            j = i
-        D = update_diagonal(D,X,y,w,j, beta=beta, lam=lam, alpha=alpha,
-                            precond=precond, precond_zsamples=precond_zsamples)
-        D_ratio = np.mean(D > alpha)
-
-        if adam:
-            m = momentum * m + (1 - momentum) * g
-            v = beta * v + (1 - beta) * g**2
-            m_corr = m / (1 - momentum**(it+1))
-            v_corr = v / (1 - beta**(it+1))
-            D_mix = np.sqrt(v_corr) + D
-            w -= gamma * (D_mix**-1 * m_corr)
-        else:
-            w -= gamma * (D**-1 * g)
-
-        # Update data
-        if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
-            data.append(collect_data(ep,X,y,w,lam,D,D_ratio))
-
-    return w, np.array(data)
+    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+    optim = SVRG(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, inner_loop=inner_loop)
+    optim = optim.precondition(**precond_args)
+    return optim.run(T)
 
 
-def SARAH(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
-          precond="hutchinson", precond_warmup=10, precond_resample=False, precond_zsamples=1):
-    ep = 0  # count effective (full) passes through dataset
-    data = []
-    wn = np.zeros(X.shape[1])
-    wp = np.array(wn)
-
-    D = init_diagonal(X,y,wn,BS, alpha=alpha, precond=precond,
-                      precond_warmup=precond_warmup, precond_zsamples=precond_zsamples)
-    D_ratio = np.mean(D > alpha)
-    data.append(collect_data(ep,X,y,wn,lam,D,D_ratio))
-
-    for epoch in range(T):
-        g_full = grad(X,y,wn,lam=lam)
-        g = g_full
-        ep += 1
-        nv0 = np.linalg.norm(g)
-        wp[:] = wn[:]
-
-        for it in range(10**10):
-            # Calculate gradients
-            i = np.random.choice(X.shape[0], BS)
-            gn = grad(X,y,wn,i,lam=lam)
-            gp = grad(X,y,wp,i,lam=lam)
-            g += gn - gp
-            nv = np.linalg.norm(g)
-            ep += BS / X.shape[0]
-
-            if precond == "hutchinson" and precond_resample:
-                j = np.random.choice(X.shape[0], BS)
-                ep += BS / X.shape[0]
-            else:
-                j = i
-            D = update_diagonal(D,X,y,wn,j, beta=beta, lam=lam, alpha=alpha,
-                                precond=precond, precond_zsamples=precond_zsamples)
-            D_ratio = np.mean(D > alpha)
-
-            # Update rule
-            wp[:] = wn[:]
-            wn -= gamma * (D**-1 * g)
-
-            # Update data
-            freq = X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)
-            if freq > 0 and it % freq == 0:
-                data.append(collect_data(ep,X,y,wn,lam,D,D_ratio))
-
-            # Inner loop stopping criterion
-            if nv < 0.1 * nv0 or it > X.shape[0] // BS:
-                data.append(collect_data(ep,X,y,wn,lam,D,D_ratio))
-                break
-
-    return wn, np.array(data)
-
-
-def SVRG(X, y, T=10, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5,
-         precond="hutchinson", precond_warmup=10, precond_resample=False, precond_zsamples=1):
-    ep = 0  # count effective (full) passes through dataset
-    data = []
-    w_out = np.zeros(X.shape[1])
-    w_in = np.array(w_out)
-
-    D = init_diagonal(X,y,w_out,BS, alpha=alpha, precond=precond,
-                      precond_warmup=precond_warmup, precond_zsamples=precond_zsamples)
-    D_ratio = np.mean(D > alpha)
-    data.append(collect_data(ep,X,y,w_out,lam,D,D_ratio))
-
-    for epoch in range(T):
-        g_full = grad(X,y,w_out,lam=lam)
-        ep += 1
-        nv0 = np.linalg.norm(g_full)
-        w_in[:] = w_out[:]
-
-        for it in range(10**10):
-            # Calculate gradients
-            i = np.random.choice(X.shape[0], BS)
-            g_in = grad(X,y,w_in,i,lam=lam)
-            g_out = grad(X,y,w_out,i,lam=lam)
-            g = g_full + g_in - g_out
-            nv = np.linalg.norm(g)
-            ep += BS / X.shape[0]
-
-            if precond == "hutchinson" and precond_resample:
-                j = np.random.choice(X.shape[0], BS)
-                ep += BS / X.shape[0]
-            else:
-                j = i
-            D = update_diagonal(D,X,y,w_in,j, beta=beta, lam=lam, alpha=alpha,
-                                precond=precond, precond_zsamples=precond_zsamples)
-            D_ratio = np.mean(D > alpha)
-
-            # Update rule
-            w_in -= gamma * (D**-1 * g)
-
-            # Update data
-            if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
-                data.append(collect_data(ep,X,y,w_in,lam,D,D_ratio))
-
-            # Inner loop stopping criterion
-            if nv < 0.1 * nv0 or it > X.shape[0] // BS:
-                w_out[:] = w_in[:]
-                break
-
-    return w_in, np.array(data)
-
-
-def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, p=0.99,
-           precond="hutchinson", precond_warmup=10, precond_resample=False, precond_zsamples=1):
-    ep = 0  # count effective (full) passes through dataset
-    data = []
-    w_out = np.zeros(X.shape[1])
-    w_in = np.array(w_out)
-    g_full = grad(X,y,w_out,lam=lam)
-
-    D = init_diagonal(X,y,w_out,BS, alpha=alpha, precond=precond,
-                      precond_warmup=precond_warmup, precond_zsamples=precond_zsamples)
-    D_ratio = np.mean(D > alpha)
-    data.append(collect_data(ep,X,y,w_out,lam,D,D_ratio))
-
-    ep += 1
-
-    for it in range(T * (X.shape[0] // BS)):
-        # Calculate gradients
-        i = np.random.choice(X.shape[0], BS)
-        g_in = grad(X,y,w_in,i,lam=lam)
-        g_out = grad(X,y,w_out,i,lam=lam)
-        g = g_full + g_in - g_out
-        ep += BS / X.shape[0]
-
-        if precond == "hutchinson" and precond_resample:
-            j = np.random.choice(X.shape[0], BS)
-            ep += BS / X.shape[0]
-        else:
-            j = i
-        D = update_diagonal(D,X,y,w_in,j, beta=beta, lam=lam, alpha=alpha,
-                            precond=precond, precond_zsamples=precond_zsamples)
-        D_ratio = np.mean(D > alpha)
-
-        # Update rule
-        w_in -= gamma * (D**-1 * g)
-
-        # Inner loop stopping criterion is now for updating w_out
-        # and comes before the update rule
-        if np.random.rand(1)[0] > p:
-            w_out[:] = w_in[:]
-            g_full = grad(X,y,w_out,lam=lam)
-            ep += 1
-
-        # Update data
-        if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
-            data.append(collect_data(ep,X,y,w_in,lam,D,D_ratio))
-
-    return w_in, np.array(data)
-
-
-def Adam(X, y, T=10000, BS=1, gamma=0.2, beta1=0.9, beta2=0.999, eps=1e-8, **_):
-    ep = 0  # count effective (full) passes through dataset
-    data = []
+def run_LSVRG(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, p=0.99, **precond_args):
     w = np.zeros(X.shape[1])
-    m = np.zeros_like(w)
-    v = np.zeros_like(w)
-    data.append(collect_data(ep,X,y,w,0.,0.,0.))
+    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+    optim = LSVRG(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, p=p)
+    optim = optim.precondition(**precond_args)
+    return optim.run(T)
 
-    for it in range(T * (X.shape[0] // BS)):
-        # Calculate gradients
-        i = np.random.choice(X.shape[0], BS)
-        g = grad(X,y,w,i)
-        ep += BS / X.shape[0]
 
-        m = beta1 * m + (1 - beta1) * g
-        v = beta2 * v + (1 - beta2) * g**2
+def run_PAGE(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, p=0.99, **precond_args):
+    w = np.zeros(X.shape[1])
+    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+    optim = PAGE(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, p=p)
+    optim = optim.precondition(**precond_args)
+    return optim.run(T)
 
-        m_corr = m / (1 - beta1**(it+1))
-        v_corr = v / (1 - beta2**(it+1))
 
-        # Update rule
-        w = w - gamma * (m_corr / (np.sqrt(v_corr) + eps))
+def run_SARAH(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, **precond_args):
+    w = np.zeros(X.shape[1])
+    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+    optim = SARAH(w, loss, BS=BS, lr=lr, lr_decay=lr_decay)
+    optim = optim.precondition(**precond_args)
+    return optim.run(T)
 
-        # Update data
-        if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
-            data.append(collect_data(ep,X,y,w,0.,0.,0.))
 
-    return w, np.array(data)
+def run_Adam(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, beta1=0.9, beta2=0.999, alpha=1e-8, **_):
+    w = np.zeros(X.shape[1])
+    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+    optim = Adam(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, beta1=beta1, beta2=beta2, eps=alpha)
+    return optim.run(T)
+
+
+def run_Adagrad(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, alpha=1e-10, **_):
+    w = np.zeros(X.shape[1])
+    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+    optim = Adagrad(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, eps=alpha)
+    return optim.run(T)
+
+
+def run_Adadelta(X, y, T=10000, BS=1, lr=1.0, lr_decay=0, weight_decay=0, beta2=0.9, alpha=1e-6, **_):
+    w = np.zeros(X.shape[1])
+    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+    optim = Adadelta(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, rho=beta2, eps=alpha)
+    return optim.run(T)
