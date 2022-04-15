@@ -4,7 +4,7 @@ from plot import plot_hessian_acc, plot_hessian_approx
 
 import numpy as np
 
-DATA_FREQ_PER_EPOCH = 5  # TODO: add this param somewhere
+DATA_FREQ_PER_EPOCH = 5
 
 
 def collect_data(ep,X,y,w, lam=0.0, D=None, D_ratio=0.0):
@@ -303,15 +303,15 @@ def L_SVRG(X, y, T=10000, BS=1, gamma=0.2, beta=0.999, lam=0.0, alpha=1e-5, p=0.
                             precond=precond, precond_zsamples=precond_zsamples)
         D_ratio = np.mean(D > alpha)
 
+        # Update rule
+        w_in -= gamma * (D**-1 * g)
+
         # Inner loop stopping criterion is now for updating w_out
-        # and comes before the update rule @XXX: move after update data?
+        # and comes before the update rule
         if np.random.rand(1)[0] > p:
             w_out[:] = w_in[:]
             g_full = grad(X,y,w_out,lam=lam)
             ep += 1
-
-        # Update rule
-        w_in -= gamma * (D**-1 * g)
 
         # Update data
         if it % (X.shape[0] // (BS * DATA_FREQ_PER_EPOCH)) == 0:
