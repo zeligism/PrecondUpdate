@@ -11,43 +11,68 @@ from joblib import Memory
 from sklearn.datasets import load_svmlight_file
 from sklearn.preprocessing import normalize
 
-from optimizer import *
-import optimizer_new as NEWOPT
+import optimizer as OLD
+from optimizer_new import *
 from plot import *
 
 mem = Memory("./mycache")
 DATASET_DIR = "datasets"
 DATASETS = ("a1a", "a9a", "rcv1", "covtype", "real-sim", "w8a", "ijcnn1", "news20",)
-OPTIMIZERS = ("SGD", "SARAH", "OASIS", "SVRG", "L-SVRG", "Adam")
+# @TODO: allow case-insensitive arg for optimizer, but keep canonical name
+OPTIMIZERS = ("SGD", "SARAH", "PAGE", "OASIS", "SVRG", "L-SVRG", "LSVRG", "Adam", "Adagrad", "Adadelta")
+#OPTIMIZERS = ("sgd", "sarah", "page", "oasis", "svrg", "l-svrg", "lsvrg", "adam", "adagrad", "adadelta")
 
 
-def parse_args():
+def parse_args(namespace=None):
     parser = argparse.ArgumentParser(description="Optimizers with diagonal preconditioning")
 
-    parser.add_argument("-s", "--seed", type=int, default=None, help='random seed')
+    parser.add_argument("-s", "--seed", type=int, default=None,
+                        help='Random seed')
     parser.add_argument("--dataset", type=str, choices=DATASETS, default="a1a",
-                        help="name of dataset (in 'datasets' directory")
-    parser.add_argument("--corrupt", nargs="*", type=int, default=None, help="If specified, corrupt scale of dataset."
-                        "Takes at most two values: k_min, k_max, specifying the range of powers in scale."
-                        "If one value k is given, the range will be (-k,k) (otherwise, default to (-3,3)).")
-    parser.add_argument("--savefig", type=str, default=None, help="save plots under this name (default: don't save)")
-    parser.add_argument("--savedata", type=str, default=None, help="save data log (default: don't save)")
+                        help="Name of dataset (in 'datasets' directory")
+    parser.add_argument("--corrupt", nargs="*", type=int, default=None,
+                        help="Corrupt scale features in dataset."
+                        "First two args = (k_min, k_max) = range of scaling in powers."
+                        "If one arg is given, range will be (-k,k).")
+    parser.add_argument("--savefig", type=str, default=None,
+                        help="Save plots under this name (default: don't save).")
+    parser.add_argument("--savedata", type=str, default=None,
+                        help="Save data log (default: don't save).")
 
-    parser.add_argument("--optimizer", type=str, choices=OPTIMIZERS, default="SARAH", help="name of optimizer")
-    parser.add_argument("-T", "--epochs", dest="T", type=int, default=5, help="number of epochs to run")
-    parser.add_argument("-BS", "--batch_size", dest="BS", type=int, default=1, help="batch size")
-    parser.add_argument("-lr", "--gamma", type=float, default=0.02, help="base learning rate")
-    parser.add_argument("--alpha", type=float, default=1e-7, help="min value of diagonal of hessian estimate")
-    parser.add_argument("--beta", type=float, default=0.999, help="adaptive rate of hessian estimate")
-    parser.add_argument("--lam", type=float, default=0., help="regularization coefficient")
-    parser.add_argument("-p", "--update-p", dest="p", type=float, default=0.99, help="probability of updating checkpoint in L-SVRG")
-    parser.add_argument("--precond", type=str.lower, default=None, help="Diagonal preconditioning method (default: none)")
-    parser.add_argument("--precond_warmup", type=int, default=1, help="Number of samples for initializing diagonal estimate")
-    parser.add_argument("--precond_resample", action="store_true", help="Resample batch for preconditioning")
-    parser.add_argument("--precond_zsamples", type=int, default=1, help="Number of z samples")
+    parser.add_argument("--optimizer", type=str, choices=OPTIMIZERS, default="SARAH",
+                        help="Name of optimizer.")
+    parser.add_argument("-T", "--epochs", dest="T", type=int, default=5,
+                        help="Number of epochs to run.")
+    parser.add_argument("-BS", "--batch_size", dest="BS", type=int, default=1,
+                        help="Batch size.")
+    parser.add_argument("-lr", "--gamma", dest="lr", type=float, default=0.02,
+                        help="Base learning rate.")
+    parser.add_argument("--lr-decay", type=float, default=0,
+                        help="Learning rate decay.")
+    parser.add_argument("--weight-decay", "--lam", "--lmbd", type=float, default=0,
+                        help="weight decay / n")
+    parser.add_argument("-p", "--update-p", dest="p", type=float, default=0.99,
+                        help="Probability p in L-SVRG or PAGE.")
+
+    parser.add_argument("--precond", type=str.lower, default=None,
+                        help="Diagonal preconditioner (default: none).")
+    parser.add_argument("--beta1", type=float, default=0.999,
+                        help="Momentum of gradient first moment.")
+    parser.add_argument("--beta2", "--beta", "--rho", dest="beta2", type=float, default=0.999,
+                        help="Momentum of gradient second moment.")
+    parser.add_argument("--alpha", type=float, default=1e-7,
+                        help="Equivalent to 'eps' in Adam (e.g. see pytorch docs).")
+    parser.add_argument("--precond_warmup", type=int, default=100,
+                        help="Num of samples for initializing diagonal in hutchinson's method.")
+    parser.add_argument("--precond_resample", action="store_true",
+                        help="Resample batch in hutchinson's method.")
+    parser.add_argument("--precond_zsamples", type=int, default=1,
+                        help="Num of rademacher samples in hutchinson's method.")
+
+    parser.add_argument("--old", action="store_true", help="Use old optimization code (for testing).")
 
     # Parse command line args
-    args = parser.parse_args()
+    args = parser.parse_args(namespace=namespace)
     return args
 
 
@@ -84,60 +109,83 @@ def train(args):
     print("We have %d samples, each has up to %d features." % (X.shape[0], X.shape[1]))
 
     if args.corrupt is not None:
-        print("Corrupting scale of data.")
         if len(args.corrupt) == 0:
             args.corrupt = (-1,1)
         elif len(args.corrupt) == 1:
             args.corrupt = (-args.corrupt[0], args.corrupt[0])
+        print(f"Scaling features from 10^{args.corrupt[0]} to 10^{args.corrupt[0]}.")
         X = corrupt_scale(X, args.corrupt[0], args.corrupt[1])
 
     print(f"Running {args.optimizer}...")
-    kwargs = dict(T=args.T, BS=args.BS,
-                  gamma=args.gamma, beta=args.beta,
-                  lam=args.lam, alpha=args.alpha,
+    kwargs = dict(T=args.T, BS=args.BS, gamma=args.lr,
+                  lam=args.weight_decay,
                   precond=args.precond,
+                  beta=args.beta2, alpha=args.alpha,
                   precond_warmup=args.precond_warmup,
                   precond_resample=args.precond_resample,
                   precond_zsamples=args.precond_zsamples,
                   )
+    new_kwargs = dict(T=args.T, BS=args.BS, lr=args.lr,
+                      lr_decay=args.lr_decay, weight_decay=args.weight_decay,
+                      precond=args.precond,
+                      beta1=args.beta1, beta2=args.beta2, alpha=args.alpha,
+                      precond_warmup=args.precond_warmup,
+                      precond_resample=args.precond_resample,
+                      precond_zsamples=args.precond_zsamples,
+                      )
+
+    start_time = time.time()
     if args.optimizer == "SGD":
-        np.random.seed(args.seed)
-        wopt, data = SGD(X, y, **kwargs)
-        print(wopt.sum())
-        np.random.seed(args.seed)
-        wopt, data = NEWOPT.SGD_(X, y, **kwargs)
-        print(wopt.sum())
+        if args.old:
+            wopt, data = OLD.SGD(X, y, **kwargs)
+        else:
+            wopt, data = run_SGD(X, y, **new_kwargs)
     elif args.optimizer == "SARAH":
-        wopt, data = SARAH(X, y, **kwargs)
-    elif args.optimizer == "OASIS":
-        wopt, data = OASIS(X, y, **kwargs)
+        if args.old:
+            wopt, data = OLD.SARAH(X, y, **kwargs)
+        else:
+            wopt, data = run_SARAH(X, y, **new_kwargs)
     elif args.optimizer == "SVRG":
-        wopt, data = SVRG(X, y, **kwargs)
-    elif args.optimizer == "L-SVRG":
-        wopt, data = L_SVRG(X, y, **kwargs, p=args.p)
+        if args.old:
+            wopt, data = OLD.SVRG(X, y, **kwargs)
+        else:
+            wopt, data = run_SVRG(X, y, **new_kwargs)
+    elif args.optimizer in ("L-SVRG", "LSVRG"):
+        if args.old:
+            wopt, data = OLD.L_SVRG(X, y, p=args.p, **kwargs)
+        else:
+            wopt, data = run_LSVRG(X, y, p=args.p, **new_kwargs)
     elif args.optimizer == "Adam":
-        np.random.seed(args.seed)
-        wopt, data = Adam(X, y, **kwargs)
-        print(wopt.sum())
-        np.random.seed(args.seed)
-        wopt, data = NEWOPT.Adam_(X, y, **kwargs)
-        print(wopt.sum())
+        if args.old:
+            wopt, data = OLD.Adam(X, y, **kwargs)
+        else:
+            wopt, data = run_Adam(X, y, **new_kwargs)
+    elif args.optimizer == "Adagrad":
+        wopt, data = NEW.run_Adagrad(X, y, **new_kwargs)
+    elif args.optimizer == "Adadelta":
+        wopt, data = NEW.run_Adadelta(X, y, **new_kwargs)
+    elif args.optimizer == "PAGE":
+        wopt, data = NEW.run_PAGE(X, y, p=args.p, **new_kwargs)
+    elif args.optimizer == "OASIS":
+        wopt, data = OASIS(X, y, **kwargs)  # @XXX
     else:
         raise NotImplementedError(f"Optimizer '{args.optimizer}' not implemented yet.")
+
     print("Done.")
+    print(f"Running time: {time.time() - start_time:.2f} seconds.")
 
     if args.savefig is not None:
-        # Create title
+        # Make a nice title
         title = rf"{args.optimizer}({os.path.basename(args.dataset)})"
-        title += rf" with BS={args.BS}, $\gamma$={args.gamma}"
-        if args.lam != 0.0:
-            title += rf", $\lambda$={args.lam}"
+        title += rf" with BS={args.BS}, $\gamma$={args.lr}"
+        if args.weight_decay != 0.0:
+            title += rf", $\lambda$={args.weight_decay}"
         if args.optimizer == "L-SVRG":
             title += f", p={args.p}"
         if args.precond is not None:
             title += f", precond={args.precond}"
         if args.precond == "hutchinson":
-            title += rf", $\beta$={args.beta}, $\alpha$={args.alpha}"
+            title += rf", $\beta$={args.beta2}, $\alpha$={args.alpha}"
         if args.corrupt is not None:
             title += f", corrupt=[{args.corrupt[0]}, {args.corrupt[1]}]"
         print(f"Saving plot to '{args.savefig}'.")
