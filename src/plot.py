@@ -172,7 +172,6 @@ def get_logs(logdir, dataset, optimizer, **filter_args):
         exp_args = unpack_args(fname)
         if not contain_dict(exp_args, filter_args):
             continue
-        # load data @TODO: logs should not be empty in the first place
         data = loaddata(fname)
         if len(data) == 0:
             print(fname, "has no data!")
@@ -267,11 +266,9 @@ def sns_get_optimal_hyperparams(logdir, metric=LOSS, agg=AGG, **filter_args):
             for col in argcols:
                 df[col] = args[col]
             # Dilute iterations if averaging across seeds @XXX
-            if EP_DILUTION > 1:
-                df["ep"] = round(df["ep"], 1)
-                df = df[df["ep"] <= T].iloc[::EP_DILUTION]
-            else:
-                df = df[df["ep"] <= T]
+            df["ep"] = np.ceil(df["ep"] / EP_DILUTION) * EP_DILUTION
+            df = df.groupby(["ep"] + argcols).mean().reset_index()
+            df = df[df["ep"] <= T]
             exp_df = exp_df.append(df, ignore_index=True)
 
         # Set index to arg settings
@@ -321,7 +318,7 @@ def plot_all_hyperparams(data_dict, **filter_args):
                 axes[i,j].legend(fontsize=10, loc=1, prop={'size': 7})
     fig.tight_layout()
 
-    plt.savefig(f"plots/lr({filter_args_str}).pdf")
+    plt.savefig(f"plots/learning_rates({filter_args_str}).pdf")
     plt.close()
 
 
@@ -355,7 +352,7 @@ def sns_plot_all_hyperparams(data_dict, **filter_args):
             axes[i,j].set_xlabel("Effective Passes")
     fig.tight_layout()
 
-    plt.savefig(f"plots/lr({filter_args_str}).pdf")
+    plt.savefig(f"plots/learning_rates({filter_args_str}).pdf")
     plt.close()
 
 
@@ -458,7 +455,7 @@ def generate_plots(hp_dict, metric, logdir, seaborn=SEABORN):
         print("Plotting:", filter_args, "...")
         if seaborn:
             all_data, best_data = sns_get_optimal_hyperparams(logdir, metric=metric, **filter_args)
-            sns_plot_all_hyperparams(all_data, **filter_args)
+            #sns_plot_all_hyperparams(all_data, **filter_args)
             sns_plot_optimal_hyperparams(best_data, **filter_args)
         else:
             all_data, best_data = get_optimal_hyperparams(logdir, metric=metric, **filter_args)
