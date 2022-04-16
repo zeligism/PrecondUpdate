@@ -149,10 +149,11 @@ class SGD:
     def __init__(self, w, loss, BS=1, lr=0.0002, lr_decay=0, history_freq_per_epoch=5):
         self.w = w
         self.loss = loss
-        self.N = self.loss.num_data
+        self.N = self.loss.num_data  # @TODO: change N to num_data?
         self.BS = BS
         self.base_lr = lr
-        self.lr_decay = lr_decay
+        # divide lr_decay by num updates per epoch to get approx `base_lr/(ep+1)`
+        self.lr_decay = lr_decay / (self.N // self.BS)
         self.history_freq_per_epoch = history_freq_per_epoch
         self.reset_history()
         self.ep = 0  # effective passes over dataset
@@ -412,64 +413,48 @@ class Adadelta(SGD):
 
 
 ###############################################################################
-# Utility functions for running experiments using logistic loss with w0 = 0
+# Utility functions for running experiments @TODO: do we need this?
 
-def run_SGD(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, **precond_args):
-    w = np.zeros(X.shape[1])
-    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+def run_SGD(X, y, w, loss, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, **precond_args):
     optim = SGD(w, loss, BS=BS, lr=lr, lr_decay=lr_decay)
     optim = optim.precondition(**precond_args)
     return optim.run(T)
 
 
-def run_SVRG(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, inner_loop=1.0, **precond_args):
-    w = np.zeros(X.shape[1])
-    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+def run_SVRG(X, y, w, loss, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, inner_loop=1.0, **precond_args):
     optim = SVRG(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, inner_loop=inner_loop)
     optim = optim.precondition(**precond_args)
     return optim.run(T)
 
 
-def run_LSVRG(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, p=0.99, **precond_args):
-    w = np.zeros(X.shape[1])
-    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+def run_LSVRG(X, y, w, loss, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, p=0.99, **precond_args):
     optim = LSVRG(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, p=p)
     optim = optim.precondition(**precond_args)
     return optim.run(T)
 
 
-def run_PAGE(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, p=0.99, **precond_args):
-    w = np.zeros(X.shape[1])
-    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+def run_PAGE(X, y, w, loss, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, p=0.99, **precond_args):
     optim = PAGE(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, p=p)
     optim = optim.precondition(**precond_args)
     return optim.run(T)
 
 
-def run_SARAH(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, **precond_args):
-    w = np.zeros(X.shape[1])
-    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+def run_SARAH(X, y, w, loss, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, **precond_args):
     optim = SARAH(w, loss, BS=BS, lr=lr, lr_decay=lr_decay)
     optim = optim.precondition(**precond_args)
     return optim.run(T)
 
 
-def run_Adam(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, beta1=0.9, beta2=0.999, alpha=1e-8, **_):
-    w = np.zeros(X.shape[1])
-    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+def run_Adam(X, y, w, loss, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, beta1=0.9, beta2=0.999, alpha=1e-8, **_):
     optim = Adam(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, beta1=beta1, beta2=beta2, eps=alpha)
     return optim.run(T)
 
 
-def run_Adagrad(X, y, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, alpha=1e-10, **_):
-    w = np.zeros(X.shape[1])
-    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+def run_Adagrad(X, y, w, loss, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, alpha=1e-10, **_):
     optim = Adagrad(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, eps=alpha)
     return optim.run(T)
 
 
-def run_Adadelta(X, y, T=10000, BS=1, lr=1.0, lr_decay=0, weight_decay=0, beta2=0.9, alpha=1e-6, **_):
-    w = np.zeros(X.shape[1])
-    loss = LogisticLoss(X, y, weight_decay=weight_decay)
+def run_Adadelta(X, y, w, loss, T=10000, BS=1, lr=1.0, lr_decay=0, weight_decay=0, beta2=0.9, alpha=1e-6, **_):
     optim = Adadelta(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, rho=beta2, eps=alpha)
     return optim.run(T)

@@ -13,6 +13,7 @@ from sklearn.preprocessing import normalize
 
 import optimizer_old as OLD
 from optimizer import *
+from loss import *
 from plot import *
 
 mem = Memory("./mycache")
@@ -21,6 +22,7 @@ DATASETS = ("a1a", "a9a", "rcv1", "covtype", "real-sim", "w8a", "ijcnn1", "news2
 # @TODO: allow case-insensitive arg for optimizer, but keep canonical name
 OPTIMIZERS = ("SGD", "SARAH", "PAGE", "OASIS", "SVRG", "L-SVRG", "LSVRG", "Adam", "Adagrad", "Adadelta")
 #OPTIMIZERS = ("sgd", "sarah", "page", "oasis", "svrg", "l-svrg", "lsvrg", "adam", "adagrad", "adadelta")
+LOSSES = ("logistic", "nonlinear")
 
 
 def parse_args(namespace=None):
@@ -69,6 +71,8 @@ def parse_args(namespace=None):
     parser.add_argument("--precond_zsamples", type=int, default=1,
                         help="Num of rademacher samples in hutchinson's method.")
 
+    parser.add_argument("--loss", type=str.lower, choices=LOSSES, default=LOSSES[0],
+                        help="Loss function ('nonlinear' is non-convex).")
     parser.add_argument("--old", action="store_true", help="Use old optimization code (for testing).")
 
     # Parse command line args
@@ -113,10 +117,21 @@ def train(args):
             args.corrupt = (-1,1)
         elif len(args.corrupt) == 1:
             args.corrupt = (-args.corrupt[0], args.corrupt[0])
-        print(f"Scaling features from 10^{args.corrupt[0]} to 10^{args.corrupt[0]}.")
+        print(f"Scaling features from 10^{args.corrupt[0]} to 10^{args.corrupt[1]}.")
         X = corrupt_scale(X, args.corrupt[0], args.corrupt[1])
 
-    print(f"Running {args.optimizer}...")
+    # Init weights  @TODO: add other initalizations?
+    print("Initializing weights to 0.")
+    w = np.zeros(X.shape[1])
+
+    # Init loss
+    if args.loss == "logistic":
+        print("Using logistic regression loss.")
+        loss = LogisticLoss(X, y, weight_decay=args.weight_decay)
+    elif args.loss == "nonlinear":
+        print("Using nonlinear least square loss.")
+        loss = NonLinearLeastSquareLoss(X, y, weight_decay=args.weight_decay)
+
     kwargs = dict(T=args.T, BS=args.BS, gamma=args.lr,
                   lam=args.weight_decay,
                   precond=args.precond,
@@ -125,49 +140,52 @@ def train(args):
                   precond_resample=args.precond_resample,
                   precond_zsamples=args.precond_zsamples,
                   )
-    new_kwargs = dict(T=args.T, BS=args.BS, lr=args.lr,
-                      lr_decay=args.lr_decay, weight_decay=args.weight_decay,
-                      precond=args.precond,
-                      beta1=args.beta1, beta2=args.beta2, alpha=args.alpha,
+    new_kwargs = dict(T=args.T, BS=args.BS, lr=args.lr, lr_decay=args.lr_decay,
+                      precond=args.precond, beta1=args.beta1, beta2=args.beta2, alpha=args.alpha,
                       precond_warmup=args.precond_warmup,
                       precond_resample=args.precond_resample,
                       precond_zsamples=args.precond_zsamples,
                       )
 
+    print(f"Learning rate = {args.lr}")
+    print(f"Batch size = {args.BS}")
+    print(f"Running {args.optimizer} for {args.T} epochs...")
     start_time = time.time()
     if args.optimizer == "SGD":
         if args.old:
-            wopt, data = OLD.SGD(X, y, **kwargs)
+            wopt, data = OLD.SGD(X,y, **kwargs)
         else:
-            wopt, data = run_SGD(X, y, **new_kwargs)
+            wopt, data = run_SGD(X,y,w,loss, **new_kwargs)
     elif args.optimizer == "SARAH":
         if args.old:
-            wopt, data = OLD.SARAH(X, y, **kwargs)
+            wopt, data = OLD.SARAH(X,y, **kwargs)
         else:
-            wopt, data = run_SARAH(X, y, **new_kwargs)
+            wopt, data = run_SARAH(X,y,w,loss, **new_kwargs)
     elif args.optimizer == "SVRG":
         if args.old:
-            wopt, data = OLD.SVRG(X, y, **kwargs)
+            wopt, data = OLD.SVRG(X,y, **kwargs)
         else:
-            wopt, data = run_SVRG(X, y, **new_kwargs)
+            wopt, data = run_SVRG(X,y,w,loss, **new_kwargs)
     elif args.optimizer in ("L-SVRG", "LSVRG"):
         if args.old:
-            wopt, data = OLD.L_SVRG(X, y, p=args.p, **kwargs)
+            wopt, data = OLD.L_SVRG(X,y, p=args.p, **kwargs)
         else:
-            wopt, data = run_LSVRG(X, y, p=args.p, **new_kwargs)
+            wopt, data = run_LSVRG(X,y,w,loss, p=args.p, **new_kwargs)
+
     elif args.optimizer == "Adam":
         if args.old:
-            wopt, data = OLD.Adam(X, y, **kwargs)
+            wopt, data = OLD.Adam(X,y, **kwargs)
         else:
-            wopt, data = run_Adam(X, y, **new_kwargs)
+            wopt, data = run_Adam(X,y,w,loss, **new_kwargs)
     elif args.optimizer == "Adagrad":
-        wopt, data = NEW.run_Adagrad(X, y, **new_kwargs)
+        wopt, data = run_Adagrad(X,y,w,loss, **new_kwargs)
     elif args.optimizer == "Adadelta":
-        wopt, data = NEW.run_Adadelta(X, y, **new_kwargs)
+        wopt, data = run_Adadelta(X,y,w,loss, **new_kwargs)
     elif args.optimizer == "PAGE":
-        wopt, data = NEW.run_PAGE(X, y, p=args.p, **new_kwargs)
+        wopt, data = run_PAGE(X,y,w,loss, p=args.p, **new_kwargs)
+
     elif args.optimizer == "OASIS":
-        wopt, data = OASIS(X, y, **kwargs)  # @XXX
+        wopt, data = OLD.OASIS(X, y, **kwargs)  # @XXX
     else:
         raise NotImplementedError(f"Optimizer '{args.optimizer}' not implemented yet.")
 

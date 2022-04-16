@@ -19,10 +19,13 @@ HP_DICT = {
     "corrupt": (None, (-3,0), (0,3), (-3,3)),
     "BS": (128,),
     "lr": (2**i for i in range(-16, 5, 2)),
+    "weight_decay": (0.0, 0.1),
+    #"lr_decay": (0.0, 0.1),
     "p": (0.99,),
     "precond": (None, "hutchinson"),
     "beta2": (0.999,),
     "alpha": (1e-1, 1e-3, 1e-7),
+    # @TODO: add losses
 }
 
 

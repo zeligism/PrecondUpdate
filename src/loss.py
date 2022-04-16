@@ -42,7 +42,7 @@ class LogisticLoss:
         X, y = slice(self.X, self.y, i)
         g = logistic_loss_grad(X,y,w)
         if self.weight_decay != 0:
-            loss += self.weight_decay * w
+            g += self.weight_decay * w
         return g
 
     def hessian(self, w, i=None):
@@ -62,6 +62,58 @@ class LogisticLoss:
     def hvp(self, w, v, i=None):
         X, y = slice(self.X, self.y, i)
         hvp = logistic_loss_hvp(X,y,w,v)
+        if self.weight_decay != 0:
+            hvp += self.weight_decay * v
+        return hvp
+
+
+class NonLinearLeastSquareLoss:
+    def __init__(self, X, y, weight_decay=0):
+        self.X = X
+        self.y = y
+        self.num_data = X.shape[0]
+        self.dim = X.shape[1]
+        self.weight_decay = weight_decay / self.num_data
+
+    def __call__(w, i=None):
+        self.func(w, i)
+
+    def pred(self, w, i=None):
+        # prediction: correct if > 0, wrong otherwise
+        X, y = slice(self.X, self.y, i)
+        return X.dot(w) * y
+
+    def func(self, w, i=None):
+        X, y = slice(self.X, self.y, i)
+        loss = nlls_loss(X,y,w)
+        if self.weight_decay != 0:
+            loss += self.weight_decay * np.linalg.norm(w)**2
+        return loss
+
+    def grad(self, w, i=None):
+        X, y = slice(self.X, self.y, i)
+        g = nlls_loss_grad(X,y,w)
+        if self.weight_decay != 0:
+            g += self.weight_decay * w
+        return g
+
+    def hessian(self, w, i=None):
+        X, y = slice(self.X, self.y, i)
+        h = nlls_loss_hessian(X,y,w)
+        if self.weight_decay != 0:
+            h += self.weight_decay * np.identity(like=w)
+        return h
+
+    def hessian_diag(self, w, i=None):
+        X, y = slice(self.X, self.y, i)
+        h_diag = nlls_loss_hessian_diag(X,y,w)
+        if self.weight_decay != 0:
+            h_diag += self.weight_decay
+        return h_diag
+
+    def hvp(self, w, v, i=None):
+        X, y = slice(self.X, self.y, i)
+        hvp = nlls_loss_hvp(X,y,w,v)
         if self.weight_decay != 0:
             hvp += self.weight_decay * v
         return hvp
@@ -124,6 +176,49 @@ def logistic_loss_hvp(X,y,w,v):
     return Hvp
 
 
+def sigmoid(t):
+    ep = np.exp(t[t < 0])
+    en = np.exp(-t[t >= 0])
+    r = np.zeros_like(t)
+    r[t < 0] = ep / (1 + ep)
+    r[t >= 0] = 1 / (1 + en)
+    return r
+
+
+def nlls_loss(X, y, w):
+    loss = (y - sigmoid(X @ w))**2
+    return np.mean(loss)
+
+
+def nlls_loss_grad(X,y,w):
+    s = sigmoid(X @ w)
+    r = 2 * (y - s) * s * (1 - s)
+    g = -X.T @ r / X.shape[0]
+    return g
+
+
+def nlls_loss_hessian(X,y,w):
+    s = sigmoid(X @ w)
+    r = (y - 2 * (1 + y) * s + 3 * s**2) * s * (1 - s)
+    # h = (y - 2*s - 2*y*s + 3*s**2) * s * (1 - s)
+    H = -X.T @ X.multiply(r.reshape(-1,1)) / X.shape[0]
+    return H
+
+
+def nlls_loss_hessian_diag(X,y,w):
+    s = sigmoid(X @ w)
+    r = (y - 2 * (1 + y) * s + 3 * s**2) * s * (1 - s)
+    H_diag = -X.multiply(X.multiply(r.reshape(-1,1))).mean(0)
+    return H_diag.A1
+
+
+def nlls_loss_hvp(X,y,w,v):
+    s = sigmoid(X @ w)
+    r = (y - 2 * (1 + y) * s + 3 * s**2) * s * (1 - s)
+    Hvp = -X.T @ (X.multiply(r.reshape(-1,1)) @ v) / X.shape[0]
+    return Hvp
+
+
 def F(X, y, w, i=None, lam=0.0):
     X, y = slice(X,y,i)
     F = logistic_loss(X,y,w)
@@ -166,8 +261,10 @@ def test_logistic(X,y,w):
     v = 10*np.random.rand(X.shape[1])
     Hvp = hvp(X,y,w,v)
     # torch
+
     def F_torch(w):
         return torch.mean(torch.log(1 + torch.exp(-y * (X @ w))))
+
     w = torch.Tensor(w).requires_grad_()
     X = torch.Tensor(X.todense()).requires_grad_()
     y = torch.Tensor(y)
