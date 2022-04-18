@@ -12,7 +12,7 @@ lam=0.0
 p=0.99
 beta=0.999
 alpha=1e-5
-run="python src/train.py"
+run="python ../src/train.py"
 default_run="$run -s $seed -T $T -BS $BS"
 
 DATASETS=("a9a" "w8a" "real-sim" "rcv1" "covtype")
