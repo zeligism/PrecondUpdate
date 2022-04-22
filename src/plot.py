@@ -23,8 +23,8 @@ DATASETS = ("a9a", "w8a", "rcv1", "real-sim",)
 #OPTIMIZERS = ("SGD", "SARAH", "L-SVRG")
 OPTIMIZERS = ("SGD", "Adam", "SARAH", "L-SVRG")
 T = 100
-AGG = AGGS[0]
-METRIC = METRICS[0]
+AGG = "mean"
+METRIC = "loss"
 
 # Use Seaborn for plots
 SEABORN = True

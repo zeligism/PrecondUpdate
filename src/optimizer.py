@@ -1,9 +1,7 @@
 
-#from loss import F, grad, hessian, hessian_diag, hvp
+import numpy as np
 from loss import LogisticLoss
 from plot import plot_hessian_acc, plot_hessian_approx
-
-import numpy as np
 
 
 def sample_uniform(size=1):
@@ -44,7 +42,7 @@ class Preconditioner:
         elif self.precond_type == "hutchinson":
             assert 0. < self.beta2 and self.beta2 <= 1.
             if plot_stats:
-                D_true = loss.hessian_diag(w)
+                H_diag = loss.hessian_diag(w)
                 D_errors = []
             D = 0.
             N = self.warmup * self.zsamples
@@ -54,7 +52,7 @@ class Preconditioner:
                     z = 2 * sample_bernoulli(w.shape) - 1
                     D += z * loss.hvp(w, z, i) / N
                     if plot_stats:
-                        rel_error = np.linalg.norm(D - D_true) / np.linalg.norm(D_true)
+                        rel_error = np.linalg.norm(D - H_diag) / np.linalg.norm(H_diag)
                         D_errors.append(rel_error)
             D = np.maximum(np.abs(D), self.alpha)
             self.diagonal = D
@@ -166,6 +164,8 @@ class SGD:
 
     def precond_grad(self, g, i):
         if self.precond is not None:
+            # @XXX: I think we always have to add this, and in case of resampling,
+            # we add it again, since this is supposed to measure each backward pass.
             if self.precond.resample:
                 i = np.random.choice(self.N, self.BS)
                 self.ep += self.BS / self.N
@@ -229,13 +229,15 @@ class SGD:
         error += 0.5 * np.mean(prediction == 0)  # ambiguous prediction -> 50% error
 
         # Preconditioner statistics @TODO: when should we report this?
+        D_ratio = 0.
         if self.precond is not None:
             D_ratio = np.mean(self.precond.diagonal > self.precond.alpha)
+
+        H_diag_err = 0.
+        if self.precond == "hutchinson":
             # H_diag = self.loss.hessian_diag(self.w)
             # H_diag_err = np.linalg.norm(self.precond.diagonal - H_diag) / np.linalg.norm(H_diag)
-            H_diag_err = 0.0
-        else:
-            D_ratio = H_diag_err = 0.0
+            pass
 
         return (self.ep, loss, g_norm, error, D_ratio, H_diag_err)
 

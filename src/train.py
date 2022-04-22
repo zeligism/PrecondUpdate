@@ -47,7 +47,7 @@ def parse_args(namespace=None):
                         help="Number of epochs to run.")
     parser.add_argument("-BS", "--batch_size", dest="BS", type=int, default=1,
                         help="Batch size.")
-    parser.add_argument("-lr", "--gamma", dest="lr", type=float, default=0.02,
+    parser.add_argument("-lr", "--gamma", "--eta", dest="lr", type=float, default=0.02,
                         help="Base learning rate.")
     parser.add_argument("--lr-decay", type=float, default=0,
                         help="Learning rate decay.")
@@ -58,11 +58,11 @@ def parse_args(namespace=None):
 
     parser.add_argument("--precond", type=str.lower, default=None,
                         help="Diagonal preconditioner (default: none).")
-    parser.add_argument("--beta1", type=float, default=0.999,
+    parser.add_argument("--beta1", "--momentum", type=float, default=0.9,
                         help="Momentum of gradient first moment.")
     parser.add_argument("--beta2", "--beta", "--rho", dest="beta2", type=float, default=0.999,
                         help="Momentum of gradient second moment.")
-    parser.add_argument("--alpha", type=float, default=1e-7,
+    parser.add_argument("--alpha", "--eps", type=float, default=1e-7,
                         help="Equivalent to 'eps' in Adam (e.g. see pytorch docs).")
     parser.add_argument("--precond_warmup", type=int, default=100,
                         help="Num of samples for initializing diagonal in hutchinson's method.")
@@ -73,6 +73,7 @@ def parse_args(namespace=None):
 
     parser.add_argument("--loss", type=str.lower, choices=LOSSES, default=LOSSES[0],
                         help="Loss function ('nonlinear' is non-convex).")
+
     parser.add_argument("--old", action="store_true", help="Use old optimization code (for testing).")
 
     # Parse command line args
@@ -133,7 +134,6 @@ def train(args):
         loss = NonLinearLeastSquareLoss(X, y, weight_decay=args.weight_decay)
 
     kwargs = dict(T=args.T, BS=args.BS, gamma=args.lr,
-                  lam=args.weight_decay,
                   precond=args.precond,
                   beta=args.beta2, alpha=args.alpha,
                   precond_warmup=args.precond_warmup,
