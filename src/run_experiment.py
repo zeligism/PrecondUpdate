@@ -7,25 +7,25 @@ from itertools import product
 from random import random
 from train import *
 
-
-DRY_RUN = False
-LOG_DIR = "logs10"
+# @TODO: put this in yaml or something
+DRY_RUN = False  # for testing
+LOG_DIR = "logs_alphabeta"
 HP_DICT = {
     "T": (50,),
     "seed": range(10),
-    # "dataset": ("covtype", "ijcnn1", "news20"),
+    "loss": ("logistic", "nonlinear"),
     "dataset": ("a9a", "w8a", "rcv1", "real-sim"),
+    # "dataset": ("covtype", "ijcnn1", "news20"),
     "optimizer": ("SGD", "Adam", "SARAH", "L-SVRG"),
-    "corrupt": (None, (-3,0), (0,3), (-3,3)),
+    #"corrupt": (None, (-3,0), (0,3), (-3,3)),
+    "corrupt": (None,),
     "BS": (128,),
-    "lr": (2**i for i in range(-16, 5, 2)),
-    "weight_decay": (0.0, 0.1),
-    #"lr_decay": (0.0, 0.1),
     "p": (0.99,),
-    "precond": (None, "hutchinson"),
-    "beta2": (0.999,),
+    "lr": (2**i for i in range(-16, 5, 2)),
+    #"weight_decay": (0.0, 0.1),
+    "precond": ("hutchinson",),
+    "beta2": (0.999, 0.995, 0.99, 0.95),
     "alpha": (1e-1, 1e-3, 1e-7),
-    # @TODO: add losses
 }
 
 
@@ -38,24 +38,30 @@ def main():
         os.mkdir(LOG_DIR)
     # Create folders for each dataset and for each corrupted version
     dataset_paths = {}
-    for dataset in HP_DICT["dataset"]:
-        for corrupt in HP_DICT["corrupt"]:
-            if corrupt is None:
-                dataset_folder = dataset
-            else:
-                dataset_folder = f"{dataset}({corrupt[0]},{corrupt[1]})"
-            dataset_path = os.path.join(LOG_DIR, dataset_folder)
-            if not os.path.isdir(dataset_path):
-                os.mkdir(dataset_path)
-            # Add to paths
-            if dataset not in dataset_paths:
-                dataset_paths[dataset] = {}
-            dataset_paths[dataset][corrupt] = dataset_path
+    exp_settings = product(HP_DICT["loss"], HP_DICT["dataset"], HP_DICT["corrupt"])
+    for loss, dataset, corrupt in exp_settings:
+        if corrupt is None:
+            dataset_folder = dataset
+        else:
+            dataset_folder = f"{dataset}({corrupt[0]},{corrupt[1]})"
+        # log/loss/dataset/etc...
+        loss_path = os.path.join(LOG_DIR, loss)
+        dataset_path = os.path.join(loss_path, dataset_folder)
+        if not os.path.isdir(loss_path):
+            os.mkdir(loss_path)
+        if not os.path.isdir(dataset_path):
+            os.mkdir(dataset_path)
+        # Add to paths
+        if loss not in dataset_paths:
+            dataset_paths[loss] = {}
+        if dataset not in dataset_paths[loss]:
+            dataset_paths[loss][dataset] = {}
+        dataset_paths[loss][dataset][corrupt] = dataset_path
 
     for hyperparams in product(*HP_DICT.values()):
         hp = dict(zip(HP_DICT.keys(), hyperparams))
 
-        # Hard settings
+        ### Hard settings ### 
         if hp['optimizer'] in ("SGD", "Adam", "Adagrad", "Adadelta"):
             hp['T'] *= 2
 
@@ -68,13 +74,14 @@ def main():
         if hp['optimizer'] == "Adam":
             hp['precond'] = None
             hp['beta1'] = 0.9
-            hp['beta2'] = 0.999
+            # hp['beta2'] = 0.999
             hp['alpha'] = 1e-8
 
-        # Create log file name in a way that remembers all args
+        ### Create log file name in a way that remembers all relevant args ###
         args_str = f"seed={hp['seed']}"
         args_str += f",BS={hp['BS']}"
         args_str += f",lr={hp['lr']}"
+
         if hp['lr_decay'] != 0:
             args_str += f",lr_decay={hp['lr_decay']}"
         if hp['weight_decay'] != 0:
@@ -88,8 +95,11 @@ def main():
             args_str += f",beta2={hp['beta2']}"
             args_str += f",alpha={hp['alpha']}"
 
-        # log file is {LOG_DIR}/dataset[(k_min,k_max)]/optimizer(arg1=val1,...,argN=valN).pkl
-        dataset_path = dataset_paths[hp['dataset']][hp['corrupt']]
+        if hp['optimizer'] == "Adam":
+            args_str += f",beta2={hp['beta2']}"
+
+        # log file is {LOG_DIR}/loss/dataset[(k_min,k_max)]/optimizer(arg1=val1,...,argN=valN).pkl
+        dataset_path = dataset_paths[hp['loss']][hp['dataset']][hp['corrupt']]
         logfile = os.path.join(dataset_path, f"{hp['optimizer']}({args_str}).pkl")
 
         # Skip if another job already started on this
@@ -100,12 +110,13 @@ def main():
             pickle.dump([], f)
 
         # Create arg namespace to pass to train
-        args = parse_args(namespace=Namespace(savedata=logfile, savefig=None, **hp))
+        args = parse_args(namespace=Namespace(savedata=logfile, **hp))
 
         # Run
-        print(logfile)
         if not DRY_RUN:
             train(args)
+        else:
+            print(args)
 
 
 if __name__ == "__main__":
