@@ -28,7 +28,7 @@ class Preconditioner:
         self.warmup = precond_warmup
         self.resample = precond_resample
         self.zsamples = precond_zsamples
-        self.t = None
+        self.t = 0
         self.diagonal = 1.0
 
     def init(self, w, loss, BS, plot_stats=False):
@@ -40,7 +40,7 @@ class Preconditioner:
             self.diagonal = D
 
         elif self.precond_type == "hutchinson":
-            assert 0. < self.beta2 and self.beta2 <= 1.
+            assert self.beta2 == "avg" or (0. <= self.beta2 and self.beta2 <= 1.)
             if plot_stats:
                 H_diag = loss.hessian_diag(w)
                 D_errors = []
@@ -54,25 +54,27 @@ class Preconditioner:
                     if plot_stats:
                         rel_error = np.linalg.norm(D - H_diag) / np.linalg.norm(H_diag)
                         D_errors.append(rel_error)
+            # D = loss.hessian_diag(w)  # XXX: H0 is exact
+            # self.warmup = w.shape[0]  # XXX: t0 for beta = 1-1/(t+t0)
             D = np.maximum(np.abs(D), self.alpha)
             self.diagonal = D
 
         elif self.precond_type == "momentum":
-            assert 0. < self.beta1 and self.beta1 <= 1.
+            assert 0. <= self.beta1 and self.beta1 <= 1.
             self.m = np.zeros_like(w)
 
         elif self.precond_type == "rmsprop":
-            assert 0. < self.beta2 and self.beta2 <= 1.
+            assert 0. <= self.beta2 and self.beta2 <= 1.
             self.v = np.zeros_like(w)
 
         elif self.precond_type == "adam":
-            assert 0. < self.beta1 and self.beta1 <= 1.
-            assert 0. < self.beta2 and self.beta2 <= 1.
+            assert 0. <= self.beta1 and self.beta1 <= 1.
+            assert 0. <= self.beta2 and self.beta2 <= 1.
             self.m = np.zeros_like(w)
             self.v = np.zeros_like(w)
 
         elif self.precond_type == "adadelta":
-            assert 0. < self.beta2 and self.beta2 <= 1.
+            assert 0. <= self.beta2 and self.beta2 <= 1.
             self.v = np.zeros_like(w)
             self.u = np.zeros_like(w)
 
@@ -84,7 +86,7 @@ class Preconditioner:
 
         # Shows how good the hutchinson approximation is
         if self.precond_type == "hutchinson" and plot_stats:
-            plot_hessian_acc(D_true, D)
+            plot_hessian_acc(H_diag, D)
             plot_hessian_approx(D_errors)
 
     def update(self, w, loss, i, g):
@@ -99,12 +101,12 @@ class Preconditioner:
         elif self.precond_type == "hutchinson":
             # estimate hessian diagonal
             D = 0.0
-            # @TODO: option for beta -> 1
-            #self.beta2 = 1 - 1 / (self.t + 1)
+            averaging_beta = 1 - 1 / (self.t + self.warmup)
+            beta = averaging_beta if self.beta2 == "avg" else self.beta2
             for _ in range(self.zsamples):
                 z = 2 * sample_bernoulli(w.shape) - 1
                 D += z * loss.hvp(w, z, i) / self.zsamples
-            D = np.abs(self.beta2 * self.diagonal + (1 - self.beta2) * D)
+            D = np.abs(beta * self.diagonal + (1 - beta) * D)
             D = np.maximum(D, self.alpha)
             self.diagonal = D
             precond_g = self.diagonal**-1 * g

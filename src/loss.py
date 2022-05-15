@@ -186,11 +186,13 @@ def sigmoid(t):
 
 
 def nlls_loss(X, y, w):
+    y = (y + 1) / 2  # to {0,1}
     loss = (y - sigmoid(X @ w))**2
     return np.mean(loss)
 
 
 def nlls_loss_grad(X,y,w):
+    y = (y + 1) / 2  # to {0,1}
     s = sigmoid(X @ w)
     r = 2 * (y - s) * s * (1 - s)
     g = -X.T @ r / X.shape[0]
@@ -198,6 +200,7 @@ def nlls_loss_grad(X,y,w):
 
 
 def nlls_loss_hessian(X,y,w):
+    y = (y + 1) / 2  # to {0,1}
     s = sigmoid(X @ w)
     r = (y - 2 * (1 + y) * s + 3 * s**2) * s * (1 - s)
     # h = (y - 2*s - 2*y*s + 3*s**2) * s * (1 - s)
@@ -206,6 +209,7 @@ def nlls_loss_hessian(X,y,w):
 
 
 def nlls_loss_hessian_diag(X,y,w):
+    y = (y + 1) / 2  # to {0,1}
     s = sigmoid(X @ w)
     r = (y - 2 * (1 + y) * s + 3 * s**2) * s * (1 - s)
     H_diag = -X.multiply(X.multiply(r.reshape(-1,1))).mean(0)
@@ -213,6 +217,7 @@ def nlls_loss_hessian_diag(X,y,w):
 
 
 def nlls_loss_hvp(X,y,w,v):
+    y = (y + 1) / 2  # to {0,1}
     s = sigmoid(X @ w)
     r = (y - 2 * (1 + y) * s + 3 * s**2) * s * (1 - s)
     Hvp = -X.T @ (X.multiply(r.reshape(-1,1)) @ v) / X.shape[0]

@@ -60,7 +60,7 @@ def parse_args(namespace=None):
                         help="Diagonal preconditioner (default: none).")
     parser.add_argument("--beta1", "--momentum", type=float, default=0.9,
                         help="Momentum of gradient first moment.")
-    parser.add_argument("--beta2", "--beta", "--rho", dest="beta2", type=float, default=0.999,
+    parser.add_argument("--beta2", "--beta", "--rho", dest="beta2", default=0.999,
                         help="Momentum of gradient second moment.")
     parser.add_argument("--alpha", "--eps", type=float, default=1e-7,
                         help="Equivalent to 'eps' in Adam (e.g. see pytorch docs).")
@@ -78,6 +78,9 @@ def parse_args(namespace=None):
 
     # Parse command line args
     args = parser.parse_args(namespace=namespace)
+    if args.beta2 != "avg":
+        args.beta2 = float(args.beta2)
+
     return args
 
 
