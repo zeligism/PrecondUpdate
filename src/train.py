@@ -22,7 +22,7 @@ DATASETS = ("a1a", "a9a", "rcv1", "covtype", "real-sim", "w8a", "ijcnn1", "news2
 # @TODO: allow case-insensitive arg for optimizer, but keep canonical name
 OPTIMIZERS = ("SGD", "SARAH", "PAGE", "OASIS", "SVRG", "L-SVRG", "LSVRG", "Adam", "Adagrad", "Adadelta")
 #OPTIMIZERS = ("sgd", "sarah", "page", "oasis", "svrg", "l-svrg", "lsvrg", "adam", "adagrad", "adadelta")
-LOSSES = ("logistic", "nonlinear")
+LOSSES = ("logistic", "nllsq")
 
 
 def parse_args(namespace=None):
@@ -72,7 +72,7 @@ def parse_args(namespace=None):
                         help="Num of rademacher samples in hutchinson's method.")
 
     parser.add_argument("--loss", type=str.lower, choices=LOSSES, default=LOSSES[0],
-                        help="Loss function ('nonlinear' is non-convex).")
+                        help="Loss function ('nllsq' is non-convex).")
 
     parser.add_argument("--old", action="store_true", help="Use old optimization code (for testing).")
 
@@ -132,7 +132,7 @@ def train(args):
     if args.loss == "logistic":
         print("Using logistic regression loss.")
         loss = LogisticLoss(X, y, weight_decay=args.weight_decay)
-    elif args.loss == "nonlinear":
+    elif args.loss == "nllsq":
         print("Using nonlinear least square loss.")
         loss = NonLinearLeastSquareLoss(X, y, weight_decay=args.weight_decay)
 

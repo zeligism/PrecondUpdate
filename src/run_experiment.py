@@ -14,7 +14,7 @@ HP_DICT = {
     "T": (50,),
     #"seed": range(10),
     "seed": range(5),
-    "loss": ("logistic", "nonlinear"),
+    "loss": ("logistic", "nllsq"),
     "dataset": ("a9a", "w8a", "rcv1", "real-sim"),
     # "dataset": ("covtype", "ijcnn1", "news20"),
     "optimizer": ("SGD", "Adam", "SARAH", "L-SVRG"),
