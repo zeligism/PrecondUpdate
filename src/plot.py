@@ -1,4 +1,7 @@
-# @TODO: remove old (not prefixed by sns_) plotting functions?
+#
+# NOTE: Plotting functions were rewritten and updated in the plotting notebooks.
+#
+
 import argparse
 import pickle
 import os
@@ -124,7 +127,7 @@ def savefig2(data, fname, title="Loss, gradient norm squared, and error"):
     else:
         plt.savefig(fname)
         plt.close()
-
+        """
         fig = plt.figure()
         fig.set_size_inches(8, 6)
         plt.suptitle(r"Hessian Diagonal Estimate Relative Error at $w_t$")
@@ -134,13 +137,13 @@ def savefig2(data, fname, title="Loss, gradient norm squared, and error"):
         plt.grid()
         plt.savefig("H_diag_err_t.pdf")
         plt.close()
+        """
 
 
 def plot_hessian_acc(H_diag, D):
     fig = plt.figure()
     fig.set_size_inches(8, 6)
     plt.suptitle("True Hessian Diagonal Vs. Hutchinson's Diagonal Estimate")
-    #plt.plot(H_diag, D, '.', label=r"$D_0$")
     plt.loglog(H_diag, D, '.', label=r"$D_0$")
     lim = max(H_diag.max(), D.max())
     plt.plot([0, lim], [0, lim], '--', label=r"$x=y$")

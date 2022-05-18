@@ -166,8 +166,6 @@ class SGD:
 
     def precond_grad(self, g, i):
         if self.precond is not None:
-            # @XXX: I think we always have to add this, and in case of resampling,
-            # we add it again, since this is supposed to measure each backward pass.
             if self.precond.resample:
                 i = np.random.choice(self.N, self.BS)
                 self.ep += self.BS / self.N
