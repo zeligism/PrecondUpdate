@@ -54,8 +54,6 @@ class Preconditioner:
                     if plot_stats:
                         rel_error = np.linalg.norm(D - H_diag) / np.linalg.norm(H_diag)
                         D_errors.append(rel_error)
-            # D = loss.hessian_diag(w)  # XXX: H0 is exact
-            # self.warmup = w.shape[0]  # XXX: t0 for beta = 1-1/(t+t0)
             D = np.maximum(np.abs(D), self.alpha)
             self.diagonal = D
 

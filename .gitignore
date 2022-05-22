@@ -4,3 +4,5 @@ log/
 plots/
 mycache/
 src/__pycache__/
+.ipynb_checkpoints/
+logs*/
