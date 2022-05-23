@@ -31,7 +31,7 @@ def parse_args(namespace=None):
     parser.add_argument("-s", "--seed", type=int, default=None,
                         help='Random seed')
     parser.add_argument("--dataset", type=str, choices=DATASETS, default="a1a",
-                        help="Name of dataset (in 'datasets' directory")
+                        help="Name of dataset (in 'datasets' directory)")
     parser.add_argument("--corrupt", nargs="*", type=int, default=None,
                         help="Corrupt scale features in dataset."
                         "First two args = (k_min, k_max) = range of scaling in powers."
@@ -56,8 +56,8 @@ def parse_args(namespace=None):
     parser.add_argument("-p", "--update-p", dest="p", type=float, default=0.99,
                         help="Probability p in L-SVRG or PAGE.")
 
-    parser.add_argument("--precond", type=str.lower, default=None,
-                        help="Diagonal preconditioner (default: none).")
+    parser.add_argument("--precond", type=str.lower, default=None, choices=(None, "hutchinson"),
+                        help="Diagonal preconditioner (default: None).")
     parser.add_argument("--beta1", "--momentum", type=float, default=0.9,
                         help="Momentum of gradient first moment.")
     parser.add_argument("--beta2", "--beta", "--rho", dest="beta2", default=0.999,
