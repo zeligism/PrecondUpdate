@@ -12,7 +12,6 @@ class ScaledSVRG(optim.Optimizer):
         defaults = dict(lr=lr, beta=beta, alpha=alpha)
         super().__init__(params, defaults)
         self.global_state.setdefault('t', 0)  # num of step iters
-        self.global_state.setdefault('ep', 0)  # effective passes
         self.global_state.setdefault('ckpt_evals', 0)  # num of checkpoints
         self.global_state.setdefault('should_ckpt', True)  # we should checkpoint initially
         self.global_state.setdefault('ckpt_period', period)  # period of checkpointing (in t)
@@ -64,7 +63,8 @@ class ScaledSVRG(optim.Optimizer):
                             D[D < alpha] = alpha
                             self.state[p]['D'] = D
                     else:
-                        D = (beta * self.state[p]['D'] + (1 - beta) * D).abs()
+                        D_prev = self.state[p]['D']
+                        D = (beta * D_prev + (1 - beta) * D).abs()
                         D[D < alpha] = alpha
                         self.state[p]['D'] = D
 
@@ -77,7 +77,6 @@ class ScaledSVRG(optim.Optimizer):
         for group in self.param_groups:
             for p in group['params']:
                 pstate = self.state[p]
-                pstate['step'] = 0
                 pstate['ckpt'] = p.detach().clone()
                 if p.grad is None:
                     pstate['full_grad'] = torch.zeros_like(pstate['ckpt'])
@@ -99,10 +98,14 @@ class ScaledSVRG(optim.Optimizer):
 
         ##### Warming up diagonal #####
         if t < warmup:
+            if t == 0:
+                print("Warming up...")
             loss = closure(create_graph=True)
             self.update_diagonal(init_phase=True)
             self.global_state['t'] += 1
             return loss
+        elif t == warmup:
+            print("Warm up done.")
 
         ##### Update checkpoint params and full grad #####
         if should_ckpt:
@@ -139,7 +142,7 @@ class ScaledSVRG(optim.Optimizer):
                 grad = full_grad - ckpt_grad + orig_grad
                 ### Add this line for SVRG -> SARAH ###
                 if self.SARAH:
-                    self.state[p]['ckpt'] = p.detach().clone()
+                    self.state[p]['ckpt'] = orig_param.detach().clone()
                     self.state[p]['full_grad'] = grad.detach().clone()
                 gradnorm += torch.sum(grad**2)
                 # precondition grad and take a step
@@ -148,7 +151,6 @@ class ScaledSVRG(optim.Optimizer):
                 p.set_(orig_param - group['lr'] * grad)
                 p.grad.detach_()
                 p.grad.zero_()
-                self.state[p]['step'] += 1
                 self.state[p]['orig'] = None
                 self.state[p]['orig_grad'] = None
         gradnorm = gradnorm.sqrt().item()
@@ -166,9 +168,11 @@ class ScaledSARAH(ScaledSVRG):
 
 class ScaledLSVRG(ScaledSVRG):
     def __init__(self, params, p=0.99, **kwargs):
-        kwargs['ckpt_period'] = 10**10  # don't use period
+        if 'ckpt_period' in kwargs:
+            del kwargs['ckpt_period']
         super().__init__(params, **kwargs)
         self.global_state.setdefault('ckpt_prob', p)  # prob of checkpointing
+        self.global_state.setdefault('ckpt_period', 10**10)  # don't use period
 
     @torch.no_grad()
     def step(self, closure):
