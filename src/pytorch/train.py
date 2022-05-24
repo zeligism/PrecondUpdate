@@ -127,7 +127,7 @@ def savefig(data, fname=None, title="Loss, gradient norm squared, and error"):
 ########## Models ##########
 class LogisticRegression(torch.nn.Module):
      def __init__(self, input_dim, output_dim):
-         super(LogisticRegression, self).__init__()
+         super().__init__()
          self.linear0 = torch.nn.Linear(input_dim, 100)
          self.linear = torch.nn.Linear(100, output_dim)
      def forward(self, x):
@@ -138,7 +138,7 @@ class LogisticRegression(torch.nn.Module):
 
 class Net(nn.Module):
     def __init__(self):
-        super(Net, self).__init__()
+        super().__init__()
         self.conv1 = nn.Conv2d(1, 32, 3, 1)
         self.conv2 = nn.Conv2d(32, 64, 3, 1)
         self.dropout1 = nn.Dropout(0.25)
@@ -158,8 +158,66 @@ class Net(nn.Module):
         x = F.relu(x)
         x = self.dropout2(x)
         x = self.fc2(x)
-        output = F.log_softmax(x, dim=1)
-        return output
+        return x
+
+
+# https://pytorch.org/tutorials/beginner/blitz/neural_networks_tutorial.html
+# class LeNet5(nn.Module):
+#     def __init__(self):
+#         super().__init__()
+#         # 1 input image channel, 6 output channels, 5x5 square convolution
+#         # kernel
+#         self.conv1 = nn.Conv2d(1, 6, 5)
+#         self.conv2 = nn.Conv2d(6, 16, 5)
+#         # an affine operation: y = Wx + b
+#         self.fc1 = nn.Linear(16 * 5 * 5, 120)  # 5*5 from image dimension
+#         self.fc2 = nn.Linear(120, 84)
+#         self.fc3 = nn.Linear(84, 10)
+#
+#     def forward(self, x):
+#         # Max pooling over a (2, 2) window
+#         x = F.max_pool2d(F.relu(self.conv1(x)), (2, 2))
+#         # If the size is a square, you can specify with a single number
+#         x = F.max_pool2d(F.relu(self.conv2(x)), 2)
+#         x = torch.flatten(x, 1) # flatten all dimensions except the batch dimension
+#         x = F.relu(self.fc1(x))
+#         x = F.relu(self.fc2(x))
+#         x = self.fc3(x)
+#         return x
+
+
+# https://github.com/ChawDoe/LeNet5-MNIST-PyTorch/blob/master/model.py
+class LeNet5(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2d(1, 6, 5)
+        self.relu1 = nn.ReLU()
+        self.pool1 = nn.MaxPool2d(2)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.relu2 = nn.ReLU()
+        self.pool2 = nn.MaxPool2d(2)
+        self.fc1 = nn.Linear(256, 120)
+        self.relu3 = nn.ReLU()
+        self.fc2 = nn.Linear(120, 84)
+        self.relu4 = nn.ReLU()
+        self.fc3 = nn.Linear(84, 10)
+        self.relu5 = nn.ReLU()
+
+    def forward(self, x):
+        y = self.conv1(x)
+        y = self.relu1(y)
+        y = self.pool1(y)
+        y = self.conv2(y)
+        y = self.relu2(y)
+        y = self.pool2(y)
+        y = y.view(y.shape[0], -1)
+        y = self.fc1(y)
+        y = self.relu3(y)
+        y = self.fc2(y)
+        y = self.relu4(y)
+        y = self.fc3(y)
+        y = self.relu5(y)
+        return y
 
 
 ########## Datasets ##########
@@ -294,10 +352,8 @@ def init_optim(params, args):
     return optimizer
 
 
-def main():
-    args = parse_args()
-
-    use_cuda = torch.cuda.is_available() and arg.cuda
+def run(args):
+    use_cuda = torch.cuda.is_available() and args.cuda
     device = torch.device("cuda" if use_cuda else "cpu")
     if use_cuda:
         print(f"Using CUDA.")
@@ -327,8 +383,9 @@ def main():
             batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
 
         # Initialize model, loss, and optimizer
-        model = Net().to(device)
-        criterion = F.nll_loss
+        # model = Net().to(device)
+        model = LeNet5().to(device)
+        criterion = F.cross_entropy
         args.period = len(train_loader)  # TODO: multiply by a ratio given in args?
         optimizer = init_optim(model.parameters(), args)
 
@@ -375,6 +432,11 @@ def main():
     if args.savedata is not None:
         print(f"Saving data to '{args.savedata}'.")
         savedata(data, args.savedata)
+
+
+def main():
+    args = parse_args()
+    run(args)
 
 
 if __name__ == "__main__":

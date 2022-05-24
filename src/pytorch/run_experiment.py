@@ -11,17 +11,17 @@ from train import *
 DRY_RUN = False  # for testing
 LOG_DIR = "logs_torch"
 HP_DICT = {
-    "T": (15,),
+    "epochs": (15,),
     "seed": range(3),
     "loss": ("nll",),
     "corrupt": (None,),
     "dataset": ("mnist",),
     "optimizer": ("Adam", "L-SVRG"),
-    "BS": (128,),
+    "batch_size": (128,),
     "p": (0.999,),
     "lr": (2**-6, 2**-8, 2**-10, 2**-12),
     "precond": ("hutchinson",),
-    "precond_warmup": (100,),
+    "warmup": (100,),
     "beta2": ("avg", 0.999, 0.99),
     "alpha": (1e-1, 1e-3, 1e-7),
 }
@@ -66,7 +66,7 @@ def main():
 
         ### Hard settings ###
         if hp['optimizer'] in ("SGD", "Adam", "Adagrad", "Adadelta"):
-            hp['T'] *= 2
+            hp['epochs'] *= 2
 
         if 'lr_decay' not in hp:
             hp['lr_decay'] = 0
@@ -88,7 +88,7 @@ def main():
 
         ### Create log file name in a way that remembers all relevant args ###
         args_str = f"seed={hp['seed']}"
-        args_str += f",BS={hp['BS']}"
+        args_str += f",batch_size={hp['batch_size']}"
         args_str += f",lr={hp['lr']}"
 
         if hp['lr_decay'] != 0:
@@ -103,8 +103,8 @@ def main():
             args_str += f",precond={hp['precond']}"
             args_str += f",beta2={hp['beta2']}"
             args_str += f",alpha={hp['alpha']}"
-            if 'precond_warmup' in hp:
-                args_str += f",warmup={hp['precond_warmup']}"
+            if 'warmup' in hp:
+                args_str += f",warmup={hp['warmup']}"
 
         if hp['optimizer'] == "Adam":
             args_str += f",beta1={hp['beta1']}"
@@ -122,14 +122,15 @@ def main():
             pickle.dump([], f)
 
         # Create arg namespace to pass to train
-        del hp['loss']  # XXX
-        del hp['corrupt']  # XXX
+        # XXX: Do this in a better way
+        del hp['loss']
+        del hp['corrupt']
         hp['cuda'] = True
         args = parse_args(namespace=Namespace(savedata=logfile, **hp))
 
         # Run
         if not DRY_RUN:
-            train(args)
+            run(args)
         else:
             print(args)
 
