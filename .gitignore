@@ -6,3 +6,4 @@ mycache/
 src/__pycache__/
 .ipynb_checkpoints/
 logs*/
+__pycache__/
