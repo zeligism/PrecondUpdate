@@ -9,23 +9,41 @@ from train import *
 
 # @TODO: put this in yaml or something
 DRY_RUN = False  # for testing
-LOG_DIR = "logs1"
-HP_DICT = {
-    "T": (50,),
-    "seed": range(10),
-    "loss": ("logistic", "nllsq"),
-    "dataset": ("w8a", "rcv1", "real-sim"),
-    "optimizer": ("SGD", "Adam", "SARAH", "L-SVRG"),
-    "corrupt": (None, (-3,0), (0,3), (-3,3)),
-    "BS": (128,),
-    "p": (0.99,),
-    "lr": (2**i for i in range(-16, 5, 2)),
-    "weight_decay": (0.0,),
-    "precond": ("none", "hutchinson",),
-    "precond_warmup": (100,),
-    "beta2": ("avg", 0.999, 0.995, 0.99, 0.95),
-    "alpha": (1e-1, 1e-3, 1e-7),
-}
+EXP = 2
+
+if EXP == 1:
+    LOG_DIR = "logs1"
+    HP_DICT = {
+        "T": (50,),
+        "seed": range(10),
+        "loss": ("logistic", "nllsq"),
+        "dataset": ("w8a", "rcv1", "real-sim"),
+        "optimizer": ("SGD", "Adam", "SARAH", "L-SVRG"),
+        "corrupt": (None, (-3,0), (0,3), (-3,3)),
+        "BS": (128,),
+        "p": (0.99,),
+        "lr": (2**i for i in range(-16, 5, 2)),
+        "weight_decay": (0.0,),
+        "precond": ("none", "hutchinson",),
+        "precond_warmup": (100,),
+        "beta2": ("avg", 0.999, 0.995, 0.99, 0.95),
+        "alpha": (1e-1, 1e-3, 1e-7),
+    }
+elif EXP == 2:
+    LOG_DIR = "logs2"
+    HP_DICT = {
+        "T": (50,),
+        "seed": range(10),
+        "loss": ("logistic", "nllsq"),
+        "dataset": ("a9a", "rcv1"),
+        "optimizer": ("SARAH",),
+        "corrupt": (None, (-3,3)),
+        "BS": (128,),
+        "lr": (2**i for i in range(-16, 5, 2)),
+        "precond": ("hutchinson",),
+        "beta2": ("avg", 0.1, 0.3, 0.6, 0.9, 0.99, 0.999, 1 - 1e-3, 1 - 1e-5, 1 - 1e-7, 1 - 1e-9, 1 - 1e-11),
+        "alpha": (1e0, 1e-1, 1e-3, 1e-5, 1e-7, 1e-9, 1e-11),
+    }
 
 HP_GRID = product(*HP_DICT.values())
 # Comment out if you want experiments running in sequential order
