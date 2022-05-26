@@ -12,7 +12,7 @@ DRY_RUN = False  # for testing
 LOG_DIR = "logs_torch"
 HP_DICT = {
     "epochs": (15,),
-    "seed": range(3),
+    "seed": range(10),
     "loss": ("cross_entropy",),
     "corrupt": (None,),
     "dataset": ("mnist",),
