@@ -32,7 +32,9 @@ def parse_args(namespace=None):
     parser = argparse.ArgumentParser(description="Optimizers with diagonal preconditioning (pytorch)")
 
     parser.add_argument("-s", "--seed", type=int, default=None,
-                        help='Random seed')
+                        help='Random seed for data')
+    parser.add_argument("-m", "--model-seed", type=int, default=0,
+                        help='Random seed for model.')
     parser.add_argument("--dataset", type=str, choices=DATASETS, default="a1a",
                         help="Name of dataset (in 'datasets' directory)")
     parser.add_argument("-w", "--num_workers", type=int, default=0,
@@ -162,62 +164,28 @@ class Net(nn.Module):
 
 
 # https://pytorch.org/tutorials/beginner/blitz/neural_networks_tutorial.html
-# class LeNet5(nn.Module):
-#     def __init__(self):
-#         super().__init__()
-#         # 1 input image channel, 6 output channels, 5x5 square convolution
-#         # kernel
-#         self.conv1 = nn.Conv2d(1, 6, 5)
-#         self.conv2 = nn.Conv2d(6, 16, 5)
-#         # an affine operation: y = Wx + b
-#         self.fc1 = nn.Linear(16 * 5 * 5, 120)  # 5*5 from image dimension
-#         self.fc2 = nn.Linear(120, 84)
-#         self.fc3 = nn.Linear(84, 10)
-#
-#     def forward(self, x):
-#         # Max pooling over a (2, 2) window
-#         x = F.max_pool2d(F.relu(self.conv1(x)), (2, 2))
-#         # If the size is a square, you can specify with a single number
-#         x = F.max_pool2d(F.relu(self.conv2(x)), 2)
-#         x = torch.flatten(x, 1) # flatten all dimensions except the batch dimension
-#         x = F.relu(self.fc1(x))
-#         x = F.relu(self.fc2(x))
-#         x = self.fc3(x)
-#         return x
-
-
-# https://github.com/ChawDoe/LeNet5-MNIST-PyTorch/blob/master/model.py
 class LeNet5(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(1, 6, 5)
-        self.relu1 = nn.ReLU()
-        self.pool1 = nn.MaxPool2d(2)
+        # 1 input image channel, 6 output channels, 5x5 square convolution
+        # kernel
+        self.conv1 = nn.Conv2d(1, 6, 5, padding=2)  # add padding
         self.conv2 = nn.Conv2d(6, 16, 5)
-        self.relu2 = nn.ReLU()
-        self.pool2 = nn.MaxPool2d(2)
-        self.fc1 = nn.Linear(256, 120)
-        self.relu3 = nn.ReLU()
+        # an affine operation: y = Wx + b
+        self.fc1 = nn.Linear(16 * 5 * 5, 120)  # 5*5 from image dimension
         self.fc2 = nn.Linear(120, 84)
-        self.relu4 = nn.ReLU()
         self.fc3 = nn.Linear(84, 10)
-        self.relu5 = nn.ReLU()
 
     def forward(self, x):
-        y = self.conv1(x)
-        y = self.relu1(y)
-        y = self.pool1(y)
-        y = self.conv2(y)
-        y = self.relu2(y)
-        y = self.pool2(y)
-        y = y.view(y.shape[0], -1)
-        y = self.fc1(y)
-        y = self.relu3(y)
-        y = self.fc2(y)
-        y = self.relu4(y)
-        y = self.fc3(y)
-        y = self.relu5(y)
-        return y
+        # Max pooling over a (2, 2) window
+        x = F.max_pool2d(F.relu(self.conv1(x)), (2, 2))
+        # If the size is a square, you can specify with a single number
+        x = F.max_pool2d(F.relu(self.conv2(x)), 2)
+        x = torch.flatten(x, 1) # flatten all dimensions except the batch dimension
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
 
 
 ########## Datasets ##########
@@ -261,9 +229,10 @@ def test(model, device, test_loader, criterion, multi_class=False, show_results=
     gradnorm = 0.
     # Gradnorm
     for p in model.parameters():
-        gradnorm += (p.grad**2).sum()
-        p.grad.detach_()
-        p.grad.zero_()
+        if p.grad is not None:
+            gradnorm += (p.grad**2).sum()
+            p.grad.detach_()
+            p.grad.zero_()
     gradnorm = gradnorm.item()
 
     if show_results:
@@ -277,8 +246,14 @@ def test(model, device, test_loader, criterion, multi_class=False, show_results=
 
 def train(model, device, train_loader, test_loader, optimizer, criterion, epoch,
           log_interval=50, test_interval=0.25, multi_class=False):
-    data = []
     model.train()
+    data = []
+    # Add test at initial point
+    if epoch == 1:
+        result0 = test(model, device, test_loader, criterion, multi_class=multi_class)
+        data.append((0.,) + result0)
+
+    # Training loop
     for batch_idx, (x, y) in enumerate(train_loader):
         x, y = x.to(device), y.to(device)
         def closure(full_batch=False, create_graph=False):
@@ -302,14 +277,17 @@ def train(model, device, train_loader, test_loader, optimizer, criterion, epoch,
                 epoch, batch_idx * len(x), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
         # Testing
-        if batch_idx % (round(test_interval * len(train_loader))) == 0:
-            ep = epoch - 1 + batch_idx / len(train_loader)
+        should_test = (batch_idx + 1) % round(test_interval * len(train_loader)) == 0
+        last_epoch = batch_idx == len(train_loader) - 1
+        if should_test or last_epoch:
+            ep = epoch - 1 + (batch_idx+1) / len(train_loader)
             # XXX: Ugly hack but whatever
             if hasattr(optimizer, 'global_state') and 'ckpt_evals' in optimizer.global_state:
                 ep += optimizer.global_state['ckpt_evals']
             print(ep)
             # Show results if last batch
-            result = test(model, device, test_loader, criterion, multi_class=multi_class)
+            result = test(model, device, test_loader, criterion,
+                          multi_class=multi_class, show_results=last_epoch)
             data.append((ep,) + result)
 
     return data
@@ -358,11 +336,6 @@ def run(args):
     if use_cuda:
         print(f"Using CUDA.")
 
-    if args.seed is not None:
-        print(f"Setting random seed to {args.seed}.")
-        np.random.seed(args.seed)
-        torch.manual_seed(args.seed)
-
     print(f"Dataset: {args.dataset}")
     print(f"Num workers: {args.num_workers}")
     print(f"Batch size: {args.batch_size}")
@@ -377,16 +350,29 @@ def run(args):
             train=True, download=True, transform=transform)
         test_dataset = datasets.MNIST(DATASET_DIR,
             train=False, transform=transform)
+
+        # All runs start are init based on the model seed
+        print(f"Initializing model with random seed {args.model_seed}.")
+        torch.manual_seed(args.model_seed)
+        # model = Net().to(device)
+        model = LeNet5().to(device)
+
+        # Now set the random seed
+        if args.seed is not None:
+            print(f"Setting random seed to {args.seed}.")
+            np.random.seed(args.seed)
+            torch.manual_seed(args.seed)
+
+        # Initialize DataLoaders
         train_loader = torch.utils.data.DataLoader(train_dataset,
             batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
         test_loader = torch.utils.data.DataLoader(test_dataset,
             batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
 
-        # Initialize model, loss, and optimizer
-        # model = Net().to(device)
-        model = LeNet5().to(device)
+        args.period = round(args.period * len(train_loader))  # change period to num batches
+
+        # Loss and optimizer
         criterion = F.cross_entropy
-        args.period = len(train_loader)  # TODO: multiply by a ratio given in args?
         optimizer = init_optim(model.parameters(), args)
 
         # Train
@@ -405,14 +391,27 @@ def run(args):
         if not os.path.isfile(dataset_path):
             raise FileNotFoundError(f"Could not find dataset at '{dataset_path}'")
         libsvm_dataset = LibSVMDataset(dataset_path)
+
+        # All runs start are init based on the model seed
+        print(f"Initializing model with random seed {args.model_seed}.")
+        torch.manual_seed(args.model_seed)
+        model = LogisticRegression(libsvm_dataset.feature_dim, 1).to(device)
+
+        # Now set random seed
+        if args.seed is not None:
+            print(f"Setting random seed to {args.seed}.")
+            np.random.seed(args.seed)
+            torch.manual_seed(args.seed)
+
+        # Initialize DataLoaders
         train_loader = torch.utils.data.DataLoader(libsvm_dataset,
             batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
         test_loader = torch.utils.data.DataLoader(libsvm_dataset,
             batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
-        
-        # Initialize model, loss, and optimizer
-        args.period = args.period * len(train_loader)  # convert ratio to num of batches
-        model = LogisticRegression(libsvm_dataset.feature_dim, 1).to(device)
+
+        args.period = round(args.period * len(train_loader))  # change period to num batches
+
+        # Loss and optimizer
         criterion = F.binary_cross_entropy
         optimizer = init_optim(model.parameters(), args)
 
