@@ -15,7 +15,7 @@ def sample_bernoulli(size=1):
 # @TODO: separate into multiple objects
 class Preconditioner:
     # Type of possible preconditioners
-    TYPES = ("none", "hessian", "hutchinson", "adam", "adagrad", "adadelta", "rmsprop", "momentum")
+    TYPES = ("none", "hessian", "hutchinson", "hutch++", "adam", "adagrad", "adadelta", "rmsprop", "momentum")
 
     def __init__(self, precond="hutchinson",
                  beta1=0.0, beta2=0.999, alpha=1e-5,
@@ -54,6 +54,25 @@ class Preconditioner:
                     if plot_stats:
                         rel_error = np.linalg.norm(D - H_diag) / np.linalg.norm(H_diag)
                         D_errors.append(rel_error)
+            D = np.maximum(np.abs(D), self.alpha)
+            self.diagonal = D
+
+        elif self.precond_type == "hutch++":
+            assert self.beta2 == "avg" or (0. <= self.beta2 and self.beta2 <= 1.)
+            D = 0.
+            for _ in range(self.warmup):
+                m = self.zsamples
+                i = np.random.choice(loss.num_data, BS)
+                S = np.random.randn(w.shape[0], m)
+                G = np.random.randn(w.shape[0], m)
+                hvp_S = loss.hvp(w, S, i)
+                Q, _ = np.linalg.qr(hvp_S)
+                hvp_Q = loss.hvp(w, Q, i)
+                P = G - Q.dot(Q.T.dot(G))
+                hvp_P = loss.hvp(w, P, i)
+                H1 = Q * hvp_Q
+                H2 = P * hvp_P
+                D += (H1.sum(1) + H2.sum(1) / m) / self.warmup
             D = np.maximum(np.abs(D), self.alpha)
             self.diagonal = D
 
@@ -104,6 +123,27 @@ class Preconditioner:
             for _ in range(self.zsamples):
                 z = 2 * sample_bernoulli(w.shape) - 1
                 D += z * loss.hvp(w, z, i) / self.zsamples
+            D = np.abs(beta * self.diagonal + (1 - beta) * D)
+            D = np.maximum(D, self.alpha)
+            self.diagonal = D
+            precond_g = self.diagonal**-1 * g
+
+        elif self.precond_type == "hutch++":
+            # estimate hessian diagonal
+            D = 0.0
+            averaging_beta = 1 - 1 / (self.t + self.warmup)
+            beta = averaging_beta if self.beta2 == "avg" else self.beta2
+            m = self.zsamples
+            S = np.random.randn(w.shape[0], m)
+            G = np.random.randn(w.shape[0], m)
+            hvp_S = loss.hvp(w, S, i)
+            Q, _ = np.linalg.qr(hvp_S)
+            hvp_Q = loss.hvp(w, Q, i)
+            P = G - Q.dot(Q.T.dot(G))
+            hvp_P = loss.hvp(w, P, i)
+            H1 = Q * hvp_Q
+            H2 = P * hvp_P
+            D += H1.sum(1) + H2.sum(1) / m
             D = np.abs(beta * self.diagonal + (1 - beta) * D)
             D = np.maximum(D, self.alpha)
             self.diagonal = D

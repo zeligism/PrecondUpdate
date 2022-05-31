@@ -56,7 +56,7 @@ def parse_args(namespace=None):
     parser.add_argument("-p", "--update-p", dest="p", type=float, default=0.99,
                         help="Probability p in L-SVRG or PAGE.")
 
-    parser.add_argument("--precond", type=str.lower, default=None, choices=(None, "hutchinson"),
+    parser.add_argument("--precond", type=str.lower, default=None, choices=(None, "hutchinson", "hutch++"),
                         help="Diagonal preconditioner (default: None).")
     parser.add_argument("--beta1", "--momentum", type=float, default=0.9,
                         help="Momentum of gradient first moment.")
@@ -205,7 +205,7 @@ def train(args):
             title += f", p={args.p}"
         if args.precond is not None:
             title += f", precond={args.precond}"
-        if args.precond == "hutchinson":
+        if "hutch" in args.precond:
             title += rf", $\beta$={args.beta2}, $\alpha$={args.alpha}"
         if args.corrupt is not None:
             title += f", corrupt=[{args.corrupt[0]}, {args.corrupt[1]}]"
