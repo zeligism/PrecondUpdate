@@ -1,4 +1,4 @@
-# ScaledVR
+# PrecondUpdate
 
 This repository contains an implementation of a preconditioned gradient descent update. The preconditioner is the hessian diagonal estimated using Hutchinson's trace method. We show that this clearly improves on the non-preconditioned methods and competes with SOTA optimzation algortihms with small computation overhead.
 
