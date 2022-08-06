@@ -1,6 +1,8 @@
 # PrecondUpdate
 
-This repository contains an implementation of a preconditioned gradient descent update. The preconditioner is the hessian diagonal estimated using Hutchinson's trace method. We show that this clearly improves on the non-preconditioned methods and competes with SOTA optimzation algortihms with small computation overhead.
+This is the official repository for the paper ["Stochastic Gradient Methods with Preconditioned Updates"][paper].
+
+The idea focuses on preconditioned updates for SGD algorithms, specifically with variance-reduced optimizers, such as SVRG and PAGE. The preconditioner used is the hessian diagonal estimated with Hutchinson's trace method. This preconditioner works very well in practice, improving on the non-preconditioned optimizers by a large margin when the problem is ill-conditioned, while only introducing one additional gradient computation per update.
 
 # How to run
 First, download the datasets using `sh download_datasets.sh`. Then, you can run the training using `python src/train.py`. For running a whole array of experiments (or reproduce our experimental results), you can run `python src/run_experiment.py`. For running the training in pytorch (for using autograd to calculate the preconditioner), run `python src/pytorch/train.py`, or `python src/pytorch/run_experiment.py` for the experiments.
@@ -18,7 +20,7 @@ If the user wants to use readily available data logs or wants to analyze the dat
 # Dependencies
 We still do not include the list of dependencies. In any case, they are simple and minimal (e.g. they are included in anaconda package, except pytorch). We plan to include them soon.
 
-
+[paper]: https://arxiv.org/abs/2206.00285
 [link1]: https://mbzuaiac-my.sharepoint.com/:u:/g/personal/abdulla_almansoori_mbzuai_ac_ae/EexJ9vFoalxOj2beIKbuRjcBQH9oEPDfBFmCDKTSgJZEQQ?e=0mRzQF
 [link2]: https://mbzuaiac-my.sharepoint.com/:u:/g/personal/abdulla_almansoori_mbzuai_ac_ae/EfoULDS7xbhPp03-6O_WiBIBsLJ1E7CbNmGqkdJEGnIEcg?e=CYOnjT
 [link_torch]: https://mbzuaiac-my.sharepoint.com/:u:/g/personal/abdulla_almansoori_mbzuai_ac_ae/EeLt0JuliFtLscjnzOycaeIBtTo-SvVVRxQyNNRlcFjdaA?e=iKMbNR
