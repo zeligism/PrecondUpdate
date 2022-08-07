@@ -2,7 +2,7 @@
 
 This is the official repository for the paper ["Stochastic Gradient Methods with Preconditioned Updates"][paper].
 
-<img src="perf.png" alt="performance with vs. without precond" width="800"/>
+<img src="perf.png" alt="performance with vs. without precond" width="720"/>
 
 The idea focuses on preconditioned updates for SGD algorithms, specifically with variance-reduced optimizers, such as SVRG and PAGE. The preconditioner used is the hessian diagonal estimated with Hutchinson's trace method. This preconditioner works very well in practice, improving on the non-preconditioned optimizers by a large margin when the problem is ill-conditioned, while only introducing one additional gradient computation per update.
 
