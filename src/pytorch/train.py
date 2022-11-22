@@ -39,7 +39,7 @@ def parse_args(namespace=None):
                         help="Name of dataset (in 'datasets' directory)")
     parser.add_argument("-w", "--num_workers", type=int, default=0,
                         help="Num of data loading workers.")
-    parser.add_argument("--cuda", action="store_true", help="Use cuda.")
+    parser.add_argument("--cuda", "--gpu", action="store_true", help="Use cuda.")
     # parser.add_argument("--corrupt", nargs="*", type=int, default=None,
     #                     help="Corrupt scale features in dataset."
     #                     "First two args = (k_min, k_max) = range of scaling in powers."
@@ -61,7 +61,7 @@ def parse_args(namespace=None):
                         help="Learning rate decay.")
     parser.add_argument("--weight-decay", "--lam", "--lmbd", type=float, default=0,
                         help="weight decay / n")
-    parser.add_argument("-p", "--ckpt-prob", dest="p", type=float, default=0.99,
+    parser.add_argument("-p", "--ref-prob", dest="p", type=float, default=0.99,
                         help="Probability p in L-SVRG or PAGE.")
     parser.add_argument("--period", type=float, default=1.0,
                         help="Period of checkpoint / inner loop size for SVRG and SARAH (1.0 = one dataset pass)")
@@ -126,16 +126,18 @@ def savefig(data, fname=None, title="Loss, gradient norm squared, and error"):
         plt.savefig(fname)
         plt.close()
 
+
 ########## Models ##########
 class LogisticRegression(torch.nn.Module):
-     def __init__(self, input_dim, output_dim):
-         super().__init__()
-         self.linear0 = torch.nn.Linear(input_dim, 100)
-         self.linear = torch.nn.Linear(100, output_dim)
-     def forward(self, x):
-         x = F.relu(self.linear0(x))
-         outputs = torch.sigmoid(self.linear(x))
-         return outputs
+    def __init__(self, input_dim, output_dim):
+        super().__init__()
+        self.linear0 = torch.nn.Linear(input_dim, 100)
+        self.linear = torch.nn.Linear(100, output_dim)
+
+    def forward(self, x):
+        x = F.relu(self.linear0(x))
+        outputs = torch.sigmoid(self.linear(x))
+        return outputs
 
 
 class Net(nn.Module):
@@ -226,14 +228,13 @@ def test(model, device, test_loader, criterion, multi_class=False, show_results=
             pred = torch.round(y_pred)
         correct += pred.eq(y.view_as(pred)).sum().item()
 
-    gradnorm = 0.
-    # Gradnorm
-    for p in model.parameters():
+    gradnorm = 0.0
+    for i, p in enumerate(model.parameters()):
         if p.grad is not None:
-            gradnorm += (p.grad**2).sum()
+            gradnorm += torch.sum(p.grad**2).item()
             p.grad.detach_()
             p.grad.zero_()
-    gradnorm = gradnorm.item()
+    gradnorm = gradnorm**0.5
 
     if show_results:
         print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
@@ -256,6 +257,7 @@ def train(model, device, train_loader, test_loader, optimizer, criterion, epoch,
     # Training loop
     for batch_idx, (x, y) in enumerate(train_loader):
         x, y = x.to(device), y.to(device)
+
         def closure(full_batch=False, create_graph=False):
             optimizer.zero_grad()
             if full_batch:
@@ -280,10 +282,10 @@ def train(model, device, train_loader, test_loader, optimizer, criterion, epoch,
         should_test = (batch_idx + 1) % round(test_interval * len(train_loader)) == 0
         last_epoch = batch_idx == len(train_loader) - 1
         if should_test or last_epoch:
-            ep = epoch - 1 + (batch_idx+1) / len(train_loader)
+            ep = epoch - 1 + (batch_idx + 1) / len(train_loader)
             # XXX: Ugly hack but whatever
-            if hasattr(optimizer, 'global_state') and 'ckpt_evals' in optimizer.global_state:
-                ep += optimizer.global_state['ckpt_evals']
+            if hasattr(optimizer, 'global_state') and 'ref_evals' in optimizer.global_state:
+                ep += optimizer.global_state['ref_evals']
             print(ep)
             # Show results if last batch
             result = test(model, device, test_loader, criterion,
@@ -296,19 +298,20 @@ def train(model, device, train_loader, test_loader, optimizer, criterion, epoch,
 def init_optim(params, args):
     if args.optimizer == "Adam":
         optimizer = optim.Adam(params, lr=args.lr, betas=(args.beta1, args.beta2),
-                          eps=args.alpha, weight_decay=args.weight_decay)
+                               eps=args.alpha, weight_decay=args.weight_decay)
     elif args.optimizer == "Adadelta":
         optimizer = optim.Adadelta(params, lr=args.lr, rho=args.beta2,
-                          eps=args.alpha, weight_decay=args.weight_decay)
+                                   eps=args.alpha, weight_decay=args.weight_decay)
     elif args.optimizer == "Adagrad":
         optimizer = optim.Adagrad(params, lr=args.lr, lr_decay=args.lr_decay,
-                          eps=args.alpha, weight_decay=args.weight_decay)
+                                  eps=args.alpha, weight_decay=args.weight_decay)
     elif args.optimizer == "SGD":
         if args.precond == "hutchinson":
-            raise NotImplementedError()
+            optimizer = ScaledSGD(params, lr=args.lr, beta=args.beta2, alpha=args.alpha,
+                                  warmup=args.warmup)
         else:
             optimizer = optim.SGD(params, lr=args.lr, momentum=args.beta1,
-                              weight_decay=args.weight_decay)
+                                  weight_decay=args.weight_decay)
     elif args.optimizer == "SVRG":
         if args.precond == "hutchinson":
             optimizer = ScaledSVRG(params, lr=args.lr, period=args.period,
@@ -318,13 +321,13 @@ def init_optim(params, args):
     elif args.optimizer == "SARAH":
         if args.precond == "hutchinson":
             optimizer = ScaledSARAH(params, lr=args.lr, period=args.period,
-                                   beta=args.beta2, alpha=args.alpha, warmup=args.warmup)
+                                    beta=args.beta2, alpha=args.alpha, warmup=args.warmup)
         else:
             raise NotImplementedError()
     elif args.optimizer in ("LSVRG", "L-SVRG"):
         if args.precond == "hutchinson":
             optimizer = ScaledLSVRG(params, lr=args.lr, p=args.p,
-                                   beta=args.beta2, alpha=args.alpha, warmup=args.warmup)
+                                    beta=args.beta2, alpha=args.alpha, warmup=args.warmup)
         else:
             raise NotImplementedError()
     return optimizer
@@ -332,24 +335,29 @@ def init_optim(params, args):
 
 def run(args):
     use_cuda = torch.cuda.is_available() and args.cuda
-    device = torch.device("cuda" if use_cuda else "cpu")
+    use_mps = torch.backends.mps.is_available() and args.cuda
+    device = torch.device("cuda" if use_cuda else ("mps" if use_mps else "cpu"))
     if use_cuda:
         print(f"Using CUDA.")
+    if use_mps:
+        print(f"Using M1.")
 
     print(f"Dataset: {args.dataset}")
     print(f"Num workers: {args.num_workers}")
     print(f"Batch size: {args.batch_size}")
+    print(f"Device: {device}")
 
+    #---------- MNIST ----------#
     if args.dataset == "mnist":
         # Initialize Dataset
-        transform=transforms.Compose([
+        transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.1307,), (0.3081,))
-            ])
-        train_dataset = datasets.MNIST(DATASET_DIR,
-            train=True, download=True, transform=transform)
-        test_dataset = datasets.MNIST(DATASET_DIR,
-            train=False, transform=transform)
+        ])
+        train_dataset = datasets.MNIST(DATASET_DIR, train=True,
+                                       download=True, transform=transform)
+        test_dataset = datasets.MNIST(DATASET_DIR, train=False,
+                                      transform=transform)
 
         # All runs start are init based on the model seed
         print(f"Initializing model with random seed {args.model_seed}.")
@@ -364,10 +372,10 @@ def run(args):
             torch.manual_seed(args.seed)
 
         # Initialize DataLoaders
-        train_loader = torch.utils.data.DataLoader(train_dataset,
-            batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
-        test_loader = torch.utils.data.DataLoader(test_dataset,
-            batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                   shuffle=True, num_workers=args.num_workers)
+        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
+                                                  shuffle=False, num_workers=args.num_workers)
 
         args.period = round(args.period * len(train_loader))  # change period to num batches
 
@@ -385,6 +393,7 @@ def run(args):
             if TEST_AT_EPOCH_END:
                 test(model, device, test_loader, criterion, multi_class=True, show_results=True)
 
+    #---------- LIBSVM ----------#
     elif args.dataset in LIBSVM_DATASETS:
         # Initialize Dataset
         dataset_path = os.path.join(DATASET_DIR, args.dataset)
@@ -404,10 +413,10 @@ def run(args):
             torch.manual_seed(args.seed)
 
         # Initialize DataLoaders
-        train_loader = torch.utils.data.DataLoader(libsvm_dataset,
-            batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
-        test_loader = torch.utils.data.DataLoader(libsvm_dataset,
-            batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+        train_loader = torch.utils.data.DataLoader(libsvm_dataset, batch_size=args.batch_size,
+                                                   shuffle=True, num_workers=args.num_workers)
+        test_loader = torch.utils.data.DataLoader(libsvm_dataset, batch_size=args.batch_size,
+                                                  shuffle=False, num_workers=args.num_workers)
 
         args.period = round(args.period * len(train_loader))  # change period to num batches
 

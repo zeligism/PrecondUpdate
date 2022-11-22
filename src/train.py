@@ -20,7 +20,8 @@ mem = Memory("./mycache")
 DATASET_DIR = "datasets"
 DATASETS = ("a1a", "a9a", "rcv1", "covtype", "real-sim", "w8a", "ijcnn1", "news20",)
 # @TODO: allow case-insensitive arg for optimizer, but keep canonical name
-OPTIMIZERS = ("SGD", "SARAH", "PAGE", "OASIS", "SVRG", "L-SVRG", "LSVRG", "Adam", "Adagrad", "Adadelta")
+OPTIMIZERS = ("SGD", "SARAH", "PAGE", "OASIS", "SVRG", "L-SVRG", "LSVRG",
+              "SuperSGD", "SuperLSVRG", "SuperSARAH", "Adam", "Adagrad", "Adadelta")
 # OPTIMIZERS = ("sgd", "sarah", "page", "oasis", "svrg", "l-svrg", "lsvrg", "adam", "adagrad", "adadelta")
 LOSSES = ("logistic", "nllsq")
 
@@ -53,7 +54,7 @@ def parse_args(namespace=None):
                         help="Learning rate decay.")
     parser.add_argument("--weight-decay", "--lam", "--lmbd", type=float, default=0,
                         help="weight decay / n")
-    parser.add_argument("-p", "--update-p", dest="p", type=float, default=0.99,
+    parser.add_argument("-p", "--update-p", dest="p", default=0.99,
                         help="Probability p in L-SVRG or PAGE.")
 
     parser.add_argument("--precond", type=str.lower, default=None, choices=(None, "hutchinson", "hutch++"),
@@ -175,6 +176,13 @@ def train(args):
         else:
             wopt, data = run_LSVRG(X,y,w,loss, p=args.p, **new_kwargs)
 
+    elif args.optimizer == "SuperSGD":
+        wopt, data = run_SuperSGD(X,y,w,loss, **new_kwargs)
+    elif args.optimizer == "SuperLSVRG":
+        wopt, data = run_SuperLSVRG(X,y,w,loss, p=args.p, **new_kwargs)
+    elif args.optimizer == "SuperSARAH":
+        wopt, data = run_SuperSARAH(X,y,w,loss, **new_kwargs)
+
     elif args.optimizer == "Adam":
         if args.old:
             wopt, data = OLD.Adam(X,y, **kwargs)
@@ -193,6 +201,7 @@ def train(args):
         raise NotImplementedError(f"Optimizer '{args.optimizer}' not implemented yet.")
 
     print("Done.")
+    print(f"Final loss = {loss.func(wopt)}")
     print(f"Running time: {time.time() - start_time:.2f} seconds.")
 
     if args.savefig is not None:
@@ -205,7 +214,7 @@ def train(args):
             title += f", p={args.p}"
         if args.precond is not None:
             title += f", precond={args.precond}"
-        if "hutch" in args.precond:
+        if args.precond in ("hutchinson", "hutch++"):
             title += rf", $\beta$={args.beta2}, $\alpha$={args.alpha}"
         if args.corrupt is not None:
             title += f", corrupt=[{args.corrupt[0]}, {args.corrupt[1]}]"
