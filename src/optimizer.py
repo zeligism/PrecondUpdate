@@ -437,10 +437,10 @@ class PAGE(SGD):
 class SuperSGD(SGD):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.reg_pow = 0.9
-        self.reg_const = 1.0
-        self.reg_const_min = 1e-12
-        self.search_max_iter = 2
+        self.reg_pow = 1.
+        self.reg_const = 1.
+        self.reg_const_min = 1e-5
+        self.search_max_iter = 40
 
     def step(self):
         for j in range(10**10):
@@ -454,9 +454,6 @@ class SuperSGD(SGD):
             precond_g = self.precond_grad(g, i)
             # Update
             w_next = self.w - self.lr * precond_g
-            if j + 1 == self.search_max_iter:
-                # print(f"Exceeded max backtracking iterations (reg = {self.precond.alpha}).")
-                break
             # Backtrack
             g_next = self.loss.grad(w_next, i)
             gnorm_next = np.linalg.norm(g_next)
@@ -465,6 +462,10 @@ class SuperSGD(SGD):
                 self.reg_const = max(0.25 * self.reg_const, self.reg_const_min)
                 break
             self.reg_const *= 4
+
+            if j + 1 == self.search_max_iter:
+                print(f"Exceeded max backtracking iterations (reg = {self.precond.alpha}).")
+                break
 
         self.w = w_next
         self.t += 1
@@ -475,9 +476,9 @@ class SuperSGD(SGD):
 class SuperLSVRG(LSVRG):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.reg_pow = 0.9
-        self.reg_const = 1.0
-        self.reg_const_min = 1e-12
+        self.reg_pow = 1.
+        self.reg_const = 1.
+        self.reg_const_min = 1e-5
         self.search_max_iter = 40
 
     def step(self):
@@ -494,9 +495,6 @@ class SuperLSVRG(LSVRG):
             precond_g = self.precond_grad(g, i)
             # Update
             w_next = self.w - self.lr * precond_g
-            if j + 1 == self.search_max_iter:
-                # print(f"Exceeded max backtracking iterations (reg = {self.precond.alpha}).")
-                break
             # Backtrack
             g_next = self.g_full + self.loss.grad(w_next, i) - g_out
             gnorm_next = np.linalg.norm(g_next)
@@ -505,6 +503,10 @@ class SuperLSVRG(LSVRG):
                 self.reg_const = max(0.25 * self.reg_const, self.reg_const_min)
                 break
             self.reg_const *= 4
+
+            if j + 1 == self.search_max_iter:
+                print(f"Exceeded max backtracking iterations (reg = {self.precond.alpha}).")
+                break
 
         self.w = w_next
         self.t += 1
@@ -515,9 +517,9 @@ class SuperLSVRG(LSVRG):
 class SuperSARAH(SARAH):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.reg_pow = 0.9
-        self.reg_const = 1.0
-        self.reg_const_min = 1e-12
+        self.reg_pow = 1.
+        self.reg_const = 1.
+        self.reg_const_min = 1e-5
         self.search_max_iter = 40
 
     def step(self):
@@ -534,17 +536,18 @@ class SuperSARAH(SARAH):
             precond_g = self.precond_grad(g, i)
             # Update
             w_next = self.w - self.lr * precond_g
-            if j + 1 == self.search_max_iter:
-                print(f"Exceeded max backtracking iterations (reg = {self.precond.alpha}).")
-                break
             # Backtrack
-            g_next = self.g_full + self.loss.grad(w_next, i) - g_in
+            g_next = self.g_full + self.loss.grad(w_next, i) - g_out
             gnorm_next = np.linalg.norm(g_next)
             # Check stopping criterion
             if g_next.dot(self.w - w_next) >= gnorm_next**2 / (4 * self.precond.alpha):
                 self.reg_const = max(0.25 * self.reg_const, self.reg_const_min)
                 break
             self.reg_const *= 4
+
+            if j + 1 == self.search_max_iter:
+                print(f"Exceeded max backtracking iterations (reg = {self.precond.alpha}).")
+                break
 
         self.g_full = g
         self.w_out[:] = self.w[:]
@@ -613,8 +616,6 @@ def run_SuperSGD(X, y, w, loss, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=
 
 
 def run_SuperLSVRG(X, y, w, loss, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, p=0.99, **precond_args):
-    p = 1 - 1 / loss.num_data**0.5 if p == 'auto' else float(p)
-    print(f"p = {p}")
     optim = SuperLSVRG(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, p=p)
     optim = optim.precondition(**precond_args)
     return optim.run(T)

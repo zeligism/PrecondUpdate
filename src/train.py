@@ -153,6 +153,9 @@ def train(args):
 
     print(f"Learning rate = {args.lr}")
     print(f"Batch size = {args.BS}")
+    if args.optimizer in ("LSVRG", "L-SVRG", "SuperLSVRG"):
+        args.p = 1 - 1 / loss.num_data**0.5 if args.p == 'auto' else float(args.p)
+        print(f"p = {args.p}")
     print(f"Running {args.optimizer} for {args.T} epochs...")
     start_time = time.time()
     if args.optimizer == "SGD":
@@ -201,8 +204,13 @@ def train(args):
         raise NotImplementedError(f"Optimizer '{args.optimizer}' not implemented yet.")
 
     print("Done.")
-    print(f"Final loss = {loss.func(wopt)}")
     print(f"Running time: {time.time() - start_time:.2f} seconds.")
+    print(f"Final loss = {loss.func(wopt)}")
+    # Error
+    prediction = loss.pred(wopt)
+    error = np.mean(prediction < 0)  # wrong prediction -> 100% error
+    error += 0.5 * np.mean(prediction == 0)  # ambiguous prediction -> 50% error
+    print(f"Accuracy = {100*(1 - error):0.2f}%")
 
     if args.savefig is not None:
         # Make a nice title

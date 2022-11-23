@@ -286,7 +286,6 @@ def train(model, device, train_loader, test_loader, optimizer, criterion, epoch,
             # XXX: Ugly hack but whatever
             if hasattr(optimizer, 'global_state') and 'ref_evals' in optimizer.global_state:
                 ep += optimizer.global_state['ref_evals']
-            print(ep)
             # Show results if last batch
             result = test(model, device, test_loader, criterion,
                           multi_class=multi_class, show_results=last_epoch)
@@ -338,9 +337,9 @@ def run(args):
     use_mps = torch.backends.mps.is_available() and args.cuda
     device = torch.device("cuda" if use_cuda else ("mps" if use_mps else "cpu"))
     if use_cuda:
-        print(f"Using CUDA.")
+        print(f"Using CUDA")
     if use_mps:
-        print(f"Using M1.")
+        print(f"Using M1")
 
     print(f"Dataset: {args.dataset}")
     print(f"Num workers: {args.num_workers}")

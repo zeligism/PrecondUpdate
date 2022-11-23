@@ -12,7 +12,8 @@ class ScaledSGD(optim.Optimizer):
         self.global_state.setdefault('t', 0)  # num of step iters
         self.global_state.setdefault('warmup', warmup)  # num of diagonal warmup iters
         self.global_state.setdefault('reg_const', 1.0)
-        self.global_state.setdefault('reg_pow', 0.9)
+        self.global_state.setdefault('reg_const_min', 1e-5)
+        self.global_state.setdefault('reg_pow', 1.0)
 
     @property
     def global_state(self):
@@ -31,7 +32,7 @@ class ScaledSGD(optim.Optimizer):
         reg_const = self.global_state['reg_const']
         reg_pow = self.global_state['reg_pow']
 
-        gz_sum = 0.
+        gz_sum = 0.  # hessian-vector product
         gradnorm = 0.
         for group in self.param_groups:
             for p in group['params']:
@@ -40,11 +41,11 @@ class ScaledSGD(optim.Optimizer):
                 z = 2 * torch.randint_like(p.grad, 2) - 1
                 gz_sum += (p.grad * z).sum()
                 self.state[p]['z'] = z
-                gradnorm += torch.sum(p.grad**2)
-                group['alpha'] = torch.linalg.vector_norm(p.grad)
+                gradnorm += torch.sum(p.grad**2).item()
         gz_sum.backward()
-        # for group in self.param_groups:
-        #     group['alpha'] = reg_const * gradnorm**reg_pow
+        gradnorm = gradnorm**0.5
+        for group in self.param_groups:
+            group['alpha'] = reg_const * gradnorm**reg_pow
 
         with torch.no_grad():
             for group in self.param_groups:
@@ -77,6 +78,8 @@ class ScaledSGD(optim.Optimizer):
     def step(self, closure):
         t = self.global_state['t']
         warmup = self.global_state['warmup']
+        reg_const = self.global_state['reg_const']
+        reg_const_min = self.global_state['reg_const_min']
 
         closure = torch.enable_grad()(closure)  # always enable grad for closure
 
@@ -96,17 +99,29 @@ class ScaledSGD(optim.Optimizer):
         self.update_diagonal()
 
         ##### Take step #####
+        gradnorm_sq = 0.
+        dot = 0.
         # Gather stochastic grads
         loss = closure()
         # Reset params and update grads
         for group in self.param_groups:
             for p in group['params']:
+                if 'prev' in self.state[p]:
+                    dot += (p.grad * (self.state[p]['prev'] - p)).sum().item()
+                    gradnorm_sq += (p.grad * p.grad).sum().item()
+                self.state[p]['prev'] = p.detach().clone()
                 # precondition grad and take a step
                 if 'D' in self.state[p]:
                     p.grad.mul_(self.state[p]['D']**-1)
-                p.add_(p.grad, alpha=group['lr'])
+                p.sub_(p.grad, alpha=group['lr'])
                 p.grad.detach_()
                 p.grad.zero_()
+
+        if 'alpha' in self.global_state:
+            if 4 * self.global_state['alpha'] * dot >= gradnorm_sq:
+                self.global_state['reg_const'] = max(0.25 * reg_const, reg_const_min)
+            else:
+                self.global_state['reg_const'] = 4 * reg_const
 
         self.global_state['t'] += 1
         return loss
@@ -196,6 +211,8 @@ class ScaledSVRG(ScaledSGD):
         warmup = self.global_state['warmup']
         ref_period = self.global_state['ref_period']
         should_ref = self.global_state['should_ref'] or (t % ref_period) == 0
+        reg_const = self.global_state['reg_const']
+        reg_const_min = self.global_state['reg_const_min']
 
         closure = torch.enable_grad()(closure)  # always enable grad for closure
 
@@ -221,7 +238,8 @@ class ScaledSVRG(ScaledSGD):
         self.update_diagonal()
 
         ##### Take step #####
-        gradnorm = 0.
+        gradnorm_sq = 0.
+        dot = 0.
         # Gather stochastic grads on orig params
         loss = closure()
         # Store orig params and grads, and set params to ref params
@@ -235,6 +253,10 @@ class ScaledSVRG(ScaledSGD):
         # Reset params and update grads
         for group in self.param_groups:
             for p in group['params']:
+                if 'prev' in self.state[p]:
+                    dot += (p.grad * (self.state[p]['prev'] - p)).sum().item()
+                    gradnorm_sq += (p.grad * p.grad).sum().item()
+                self.state[p]['prev'] = p.detach().clone()
                 orig_param = self.state[p]['orig']
                 ref_grad = p.grad if p.grad is not None else 0.
                 orig_grad = self.state[p]['orig_grad']
@@ -247,7 +269,7 @@ class ScaledSVRG(ScaledSGD):
                 if self.SARAH:
                     self.state[p]['ref'] = orig_param.detach().clone()
                     self.state[p]['full_grad'] = grad.detach().clone()
-                gradnorm += torch.sum(grad**2)
+                gradnorm_sq += torch.sum(grad**2)
                 # precondition grad and take a step
                 if 'D' in self.state[p]:
                     grad.mul_(self.state[p]['D']**-1)
@@ -256,7 +278,13 @@ class ScaledSVRG(ScaledSGD):
                 p.grad.zero_()
                 self.state[p]['orig'] = None
                 self.state[p]['orig_grad'] = None
-        gradnorm = gradnorm.sqrt().item()
+        gradnorm = gradnorm_sq.sqrt().item()
+
+        if 'alpha' in self.global_state:
+            if 4 * self.global_state['alpha'] * dot >= gradnorm_sq:
+                self.global_state['reg_const'] = max(0.25 * reg_const, reg_const_min)
+            else:
+                self.global_state['reg_const'] = 4 * reg_const
 
         self.global_state['should_ref'] = gradnorm < 0.1 * self.global_state['ref_gradnorm']
         self.global_state['t'] += 1
