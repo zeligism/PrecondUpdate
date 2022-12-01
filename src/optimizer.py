@@ -15,7 +15,7 @@ def sample_bernoulli(size=1):
 # @TODO: separate into multiple objects
 class Preconditioner:
     # Type of possible preconditioners
-    TYPES = ("none", "hessian", "hutchinson", "adam", "adagrad", "adadelta", "rmsprop", "momentum")
+    TYPES = ("none", "hessian", "hutchinson", "hutch++", "adam", "adagrad", "adadelta", "rmsprop", "momentum")
 
     def __init__(self, precond="hutchinson",
                  beta1=0.0, beta2=0.999, alpha=1e-5,
@@ -54,6 +54,25 @@ class Preconditioner:
                     if plot_stats:
                         rel_error = np.linalg.norm(D - H_diag) / np.linalg.norm(H_diag)
                         D_errors.append(rel_error)
+            D = np.maximum(np.abs(D), self.alpha)
+            self.diagonal = D
+
+        elif self.precond_type == "hutch++":
+            assert self.beta2 == "avg" or (0. <= self.beta2 and self.beta2 <= 1.)
+            D = 0.
+            for _ in range(self.warmup):
+                m = self.zsamples
+                i = np.random.choice(loss.num_data, BS)
+                S = np.random.randn(w.shape[0], m)
+                G = np.random.randn(w.shape[0], m)
+                hvp_S = loss.hvp(w, S, i)
+                Q, _ = np.linalg.qr(hvp_S)
+                hvp_Q = loss.hvp(w, Q, i)
+                P = G - Q.dot(Q.T.dot(G))
+                hvp_P = loss.hvp(w, P, i)
+                H1 = Q * hvp_Q
+                H2 = P * hvp_P
+                D += (H1.sum(1) + H2.sum(1) / m) / self.warmup
             D = np.maximum(np.abs(D), self.alpha)
             self.diagonal = D
 
@@ -104,6 +123,27 @@ class Preconditioner:
             for _ in range(self.zsamples):
                 z = 2 * sample_bernoulli(w.shape) - 1
                 D += z * loss.hvp(w, z, i) / self.zsamples
+            D = np.abs(beta * self.diagonal + (1 - beta) * D)
+            D = np.maximum(D, self.alpha)
+            self.diagonal = D
+            precond_g = self.diagonal**-1 * g
+
+        elif self.precond_type == "hutch++":
+            # estimate hessian diagonal
+            D = 0.0
+            averaging_beta = 1 - 1 / (self.t + self.warmup)
+            beta = averaging_beta if self.beta2 == "avg" else self.beta2
+            m = self.zsamples
+            S = np.random.randn(w.shape[0], m)
+            G = np.random.randn(w.shape[0], m)
+            hvp_S = loss.hvp(w, S, i)
+            Q, _ = np.linalg.qr(hvp_S)
+            hvp_Q = loss.hvp(w, Q, i)
+            P = G - Q.dot(Q.T.dot(G))
+            hvp_P = loss.hvp(w, P, i)
+            H1 = Q * hvp_Q
+            H2 = P * hvp_P
+            D += H1.sum(1) + H2.sum(1) / m
             D = np.abs(beta * self.diagonal + (1 - beta) * D)
             D = np.maximum(D, self.alpha)
             self.diagonal = D
@@ -394,6 +434,129 @@ class PAGE(SGD):
         return g
 
 
+class SuperSGD(SGD):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.reg_pow = 1.
+        self.reg_const = 1.
+        self.reg_const_min = 1e-5
+        self.search_max_iter = 40
+
+    def step(self):
+        for j in range(10**10):
+            # Grad
+            i = np.random.choice(self.N, self.BS)
+            self.ep += self.BS / self.N
+            g = self.loss.grad(self.w, i)
+            gnorm = np.linalg.norm(g)
+            # Regularize
+            self.precond.alpha = self.reg_const * gnorm**self.reg_pow
+            precond_g = self.precond_grad(g, i)
+            # Update
+            w_next = self.w - self.lr * precond_g
+            # Backtrack
+            g_next = self.loss.grad(w_next, i)
+            gnorm_next = np.linalg.norm(g_next)
+            # Check stopping criterion
+            if g_next.dot(self.w - w_next) >= gnorm_next**2 / (4 * self.precond.alpha):
+                self.reg_const = max(0.25 * self.reg_const, self.reg_const_min)
+                break
+            self.reg_const *= 4
+
+            if j + 1 == self.search_max_iter:
+                print(f"Exceeded max backtracking iterations (reg = {self.precond.alpha}).")
+                break
+
+        self.w = w_next
+        self.t += 1
+
+        return g
+
+
+class SuperLSVRG(LSVRG):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.reg_pow = 1.
+        self.reg_const = 1.
+        self.reg_const_min = 1e-5
+        self.search_max_iter = 40
+
+    def step(self):
+        for j in range(10**10):
+            # Grad
+            i = np.random.choice(self.N, self.BS)
+            self.ep += self.BS / self.N
+            g_in = self.loss.grad(self.w, i)
+            g_out = self.loss.grad(self.w_out, i)
+            g = self.g_full + g_in - g_out
+            gnorm = np.linalg.norm(g)
+            # Regularize
+            self.precond.alpha = self.reg_const * gnorm**self.reg_pow
+            precond_g = self.precond_grad(g, i)
+            # Update
+            w_next = self.w - self.lr * precond_g
+            # Backtrack
+            g_next = self.g_full + self.loss.grad(w_next, i) - g_out
+            gnorm_next = np.linalg.norm(g_next)
+            # Check stopping criterion
+            if g_next.dot(self.w - w_next) >= gnorm_next**2 / (4 * self.precond.alpha):
+                self.reg_const = max(0.25 * self.reg_const, self.reg_const_min)
+                break
+            self.reg_const *= 4
+
+            if j + 1 == self.search_max_iter:
+                print(f"Exceeded max backtracking iterations (reg = {self.precond.alpha}).")
+                break
+
+        self.w = w_next
+        self.t += 1
+
+        return g
+
+
+class SuperSARAH(SARAH):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.reg_pow = 1.
+        self.reg_const = 1.
+        self.reg_const_min = 1e-5
+        self.search_max_iter = 40
+
+    def step(self):
+        for j in range(10**10):
+            # Grad
+            i = np.random.choice(self.N, self.BS)
+            self.ep += self.BS / self.N
+            g_in = self.loss.grad(self.w, i)
+            g_out = self.loss.grad(self.w_out, i)
+            g = self.g_full + g_in - g_out
+            gnorm = np.linalg.norm(g)
+            # Regularize
+            self.precond.alpha = self.reg_const * gnorm**self.reg_pow
+            precond_g = self.precond_grad(g, i)
+            # Update
+            w_next = self.w - self.lr * precond_g
+            # Backtrack
+            g_next = self.g_full + self.loss.grad(w_next, i) - g_out
+            gnorm_next = np.linalg.norm(g_next)
+            # Check stopping criterion
+            if g_next.dot(self.w - w_next) >= gnorm_next**2 / (4 * self.precond.alpha):
+                self.reg_const = max(0.25 * self.reg_const, self.reg_const_min)
+                break
+            self.reg_const *= 4
+
+            if j + 1 == self.search_max_iter:
+                print(f"Exceeded max backtracking iterations (reg = {self.precond.alpha}).")
+                break
+
+        self.g_full = g
+        self.w_out[:] = self.w[:]
+        self.w = w_next
+        self.t += 1
+
+        return g
+
+
 class Adam(SGD):
     def __init__(self, w, loss, BS=1, lr=0.001, lr_decay=0, beta1=0.9, beta2=0.999, eps=1e-8):
         super().__init__(w, loss, BS=BS, lr=lr, lr_decay=lr_decay)
@@ -443,6 +606,26 @@ def run_SARAH(X, y, w, loss, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, 
     optim = SARAH(w, loss, BS=BS, lr=lr, lr_decay=lr_decay)
     optim = optim.precondition(**precond_args)
     return optim.run(T)
+
+
+# -------------- SUPER -------------- #
+def run_SuperSGD(X, y, w, loss, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, **precond_args):
+    optim = SuperSGD(w, loss, BS=BS, lr=lr, lr_decay=lr_decay)
+    optim = optim.precondition(**precond_args)
+    return optim.run(T)
+
+
+def run_SuperLSVRG(X, y, w, loss, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, p=0.99, **precond_args):
+    optim = SuperLSVRG(w, loss, BS=BS, lr=lr, lr_decay=lr_decay, p=p)
+    optim = optim.precondition(**precond_args)
+    return optim.run(T)
+
+
+def run_SuperSARAH(X, y, w, loss, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, **precond_args):
+    optim = SuperSARAH(w, loss, BS=BS, lr=lr, lr_decay=lr_decay)
+    optim = optim.precondition(**precond_args)
+    return optim.run(T)
+# ----------------------------------- #
 
 
 def run_Adam(X, y, w, loss, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, beta1=0.9, beta2=0.999, alpha=1e-8, **_):

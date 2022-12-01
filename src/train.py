@@ -4,9 +4,6 @@ import argparse
 import pickle
 import os
 import numpy as np
-import matplotlib.pyplot as plt
-import sklearn
-import scipy
 from joblib import Memory
 from sklearn.datasets import load_svmlight_file
 from sklearn.preprocessing import normalize
@@ -20,7 +17,8 @@ mem = Memory("./mycache")
 DATASET_DIR = "datasets"
 DATASETS = ("a1a", "a9a", "rcv1", "covtype", "real-sim", "w8a", "ijcnn1", "news20",)
 # @TODO: allow case-insensitive arg for optimizer, but keep canonical name
-OPTIMIZERS = ("SGD", "SARAH", "PAGE", "OASIS", "SVRG", "L-SVRG", "LSVRG", "Adam", "Adagrad", "Adadelta")
+OPTIMIZERS = ("SGD", "SARAH", "PAGE", "OASIS", "SVRG", "L-SVRG", "LSVRG",
+              "SuperSGD", "SuperLSVRG", "SuperL-SVRG", "SuperSARAH", "Adam", "Adagrad", "Adadelta")
 # OPTIMIZERS = ("sgd", "sarah", "page", "oasis", "svrg", "l-svrg", "lsvrg", "adam", "adagrad", "adadelta")
 LOSSES = ("logistic", "nllsq")
 
@@ -53,16 +51,16 @@ def parse_args(namespace=None):
                         help="Learning rate decay.")
     parser.add_argument("--weight-decay", "--lam", "--lmbd", type=float, default=0,
                         help="weight decay / n")
-    parser.add_argument("-p", "--update-p", dest="p", type=float, default=0.99,
+    parser.add_argument("-p", "--update-p", dest="p", default=0.99,
                         help="Probability p in L-SVRG or PAGE.")
 
-    parser.add_argument("--precond", type=str.lower, default=None, choices=(None, "hutchinson"),
+    parser.add_argument("--precond", type=str.lower, default=None, choices=(None, "hutchinson", "hutch++"),
                         help="Diagonal preconditioner (default: None).")
     parser.add_argument("--beta1", "--momentum", type=float, default=0.9,
                         help="Momentum of gradient first moment.")
     parser.add_argument("--beta2", "--beta", "--rho", dest="beta2", default=0.999,
                         help="Momentum of gradient second moment.")
-    parser.add_argument("--alpha", "--eps", type=float, default=1e-7,
+    parser.add_argument("--alpha", "--eps", default=1e-7,
                         help="Equivalent to 'eps' in Adam (e.g. see pytorch docs).")
     parser.add_argument("--precond_warmup", type=int, default=100,
                         help="Num of samples for initializing diagonal in hutchinson's method.")
@@ -78,8 +76,14 @@ def parse_args(namespace=None):
 
     # Parse command line args
     args = parser.parse_args(namespace=namespace)
-    if args.beta2 != "avg":
+    if args.beta2 not in ("avg", "auto"):
         args.beta2 = float(args.beta2)
+
+    if args.alpha not in ("super", "auto"):
+        args.alpha = float(args.alpha)
+    else:
+        args.optimizer = f"Super{args.optimizer}"
+
 
     return args
 
@@ -152,6 +156,9 @@ def train(args):
 
     print(f"Learning rate = {args.lr}")
     print(f"Batch size = {args.BS}")
+    if args.optimizer in ("LSVRG", "L-SVRG", "SuperLSVRG", "SuperL-SVRG"):
+        args.p = 1 - 1 / loss.num_data**0.5 if args.p == 'auto' else float(args.p)
+        print(f"p = {args.p}")
     print(f"Running {args.optimizer} for {args.T} epochs...")
     start_time = time.time()
     if args.optimizer == "SGD":
@@ -175,6 +182,13 @@ def train(args):
         else:
             wopt, data = run_LSVRG(X,y,w,loss, p=args.p, **new_kwargs)
 
+    elif args.optimizer == "SuperSGD":
+        wopt, data = run_SuperSGD(X,y,w,loss, **new_kwargs)
+    elif args.optimizer in ("SuperLSVRG", "SuperL-SVRG"):
+        wopt, data = run_SuperLSVRG(X,y,w,loss, p=args.p, **new_kwargs)
+    elif args.optimizer == "SuperSARAH":
+        wopt, data = run_SuperSARAH(X,y,w,loss, **new_kwargs)
+
     elif args.optimizer == "Adam":
         if args.old:
             wopt, data = OLD.Adam(X,y, **kwargs)
@@ -194,6 +208,12 @@ def train(args):
 
     print("Done.")
     print(f"Running time: {time.time() - start_time:.2f} seconds.")
+    print(f"Final loss = {loss.func(wopt)}")
+    # Error
+    prediction = loss.pred(wopt)
+    error = np.mean(prediction < 0)  # wrong prediction -> 100% error
+    error += 0.5 * np.mean(prediction == 0)  # ambiguous prediction -> 50% error
+    print(f"Accuracy = {100*(1 - error):0.2f}%")
 
     if args.savefig is not None:
         # Make a nice title
@@ -205,7 +225,7 @@ def train(args):
             title += f", p={args.p}"
         if args.precond is not None:
             title += f", precond={args.precond}"
-        if args.precond == "hutchinson":
+        if args.precond in ("hutchinson", "hutch++"):
             title += rf", $\beta$={args.beta2}, $\alpha$={args.alpha}"
         if args.corrupt is not None:
             title += f", corrupt=[{args.corrupt[0]}, {args.corrupt[1]}]"

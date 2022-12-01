@@ -19,11 +19,11 @@ HP_DICT = {
     "optimizer": ("Adam", "L-SVRG"),
     "batch_size": (128,),
     "p": (0.999,),
-    "lr": (2**-6, 2**-8, 2**-10, 2**-12, 2**-14),
+    "lr": (2**-4, 2**-6, 2**-8, 2**-10, 2**-12, 2**-14),
     "precond": ("hutchinson",),
     "warmup": (100,),
     "beta2": ("avg", 0.999, 0.99),
-    "alpha": (1e-1, 1e-3, 1e-7),
+    "alpha": ("super", 1e-1, 1e-3, 1e-7),
 }
 
 HP_GRID = product(*HP_DICT.values())

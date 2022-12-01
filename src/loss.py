@@ -23,7 +23,7 @@ class LogisticLoss:
         # @TODO: divide by N?
         self.weight_decay = weight_decay / self.num_data
 
-    def __call__(w, i=None):
+    def __call__(self, w, i=None):
         self.func(w, i)
 
     def pred(self, w, i=None):
