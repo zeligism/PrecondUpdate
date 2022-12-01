@@ -23,7 +23,7 @@ HP_DICT = {
     "precond": ("hutchinson",),
     "warmup": (100,),
     "beta2": ("avg", 0.999, 0.99),
-    "alpha": (1e-1, 1e-3, 1e-7),
+    "alpha": ("super", 1e-1, 1e-3, 1e-7),
 }
 
 HP_GRID = product(*HP_DICT.values())
