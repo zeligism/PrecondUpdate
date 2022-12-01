@@ -18,7 +18,7 @@ import torchvision
 from torchvision import datasets, transforms
 import torch.utils.data as data_utils
 
-from scaled_optim import *
+from optim.scaled_optim import *
 
 mem = Memory("./mycache")
 DATASET_DIR = "datasets"
@@ -61,7 +61,7 @@ def parse_args(namespace=None):
                         help="Learning rate decay.")
     parser.add_argument("--weight-decay", "--lam", "--lmbd", type=float, default=0,
                         help="weight decay / n")
-    parser.add_argument("-p", "--ref-prob", dest="p", type=float, default=0.99,
+    parser.add_argument("-p", "--ref-prob", dest="p", default=0.99,
                         help="Probability p in L-SVRG or PAGE.")
     parser.add_argument("--period", type=float, default=1.0,
                         help="Period of checkpoint / inner loop size for SVRG and SARAH (1.0 = one dataset pass)")
@@ -72,7 +72,7 @@ def parse_args(namespace=None):
                         help="Momentum of gradient first moment.")
     parser.add_argument("--beta2", "--beta", "--rho", dest="beta2", default=0.999,
                         help="Momentum of gradient second moment.")
-    parser.add_argument("--alpha", "--eps", type=float, default=1e-7,
+    parser.add_argument("--alpha", "--eps", default=1e-7,
                         help="Equivalent to 'eps' in Adam (e.g. see pytorch docs).")
     parser.add_argument("--warmup", type=int, default=100,
                         help="Num of samples for initializing diagonal in hutchinson's method.")
@@ -83,8 +83,10 @@ def parse_args(namespace=None):
 
     # Parse command line args
     args = parser.parse_args(namespace=namespace)
-    if args.beta2 != "avg":
+    if args.beta2 not in ("avg", "auto"):
         args.beta2 = float(args.beta2)
+    if args.alpha not in ("super", "auto"):
+        args.alpha = float(args.alpha)
 
     return args
 
@@ -101,24 +103,29 @@ def savedata(data, fname):
 
 
 def savefig(data, fname=None, title="Loss, gradient norm squared, and error"):
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
-    fig.set_size_inches(20, 6)
+    fig, ax = plt.subplots(2, 2)
+    fig.set_size_inches(15, 10)
     plt.suptitle(title)
 
-    ax1.plot(data[:,0], data[:,1])
-    ax1.set_ylabel(r"$F(w_t)$")
-    ax1.set_xlabel("Effective Passes")
-    ax1.grid()
+    ax[0,0].plot(data[:,0], data[:,1])
+    ax[0,0].set_ylabel(r"$F(w_t)$")
+    ax[0,0].set_xlabel("Effective Passes")
+    ax[0,0].grid()
 
-    ax2.semilogy(data[:,0], data[:,2])
-    ax2.set_ylabel(r"$||\nabla F(w_t)||^2$")
-    ax2.set_xlabel("Effective Passes")
-    ax2.grid()
+    ax[0,1].semilogy(data[:,0], data[:,2])
+    ax[0,1].set_ylabel(r"$||\nabla F(w_t)||^2$")
+    ax[0,1].set_xlabel("Effective Passes")
+    ax[0,1].grid()
 
-    ax3.semilogy(data[:,0], data[:,3])
-    ax3.set_ylabel("Error")
-    ax3.set_xlabel("Effective Passes")
-    ax3.grid()
+    ax[1,0].semilogy(data[:,0], data[:,3])
+    ax[1,0].set_ylabel("Error")
+    ax[1,0].set_xlabel("Effective Passes")
+    ax[1,0].grid()
+
+    ax[1,1].semilogy(data[:,0], data[:,4])
+    ax[1,1].set_ylabel(r"$\log \alpha$")
+    ax[1,1].set_xlabel("Effective Passes")
+    ax[1,1].grid()
 
     if fname is None:
         plt.show()
@@ -131,11 +138,12 @@ def savefig(data, fname=None, title="Loss, gradient norm squared, and error"):
 class LogisticRegression(torch.nn.Module):
     def __init__(self, input_dim, output_dim):
         super().__init__()
-        self.linear0 = torch.nn.Linear(input_dim, 100)
-        self.linear = torch.nn.Linear(100, output_dim)
+        # self.linear0 = torch.nn.Linear(input_dim, 100)
+        # self.linear = torch.nn.Linear(100, output_dim)
+        self.linear = torch.nn.Linear(input_dim, output_dim)
 
     def forward(self, x):
-        x = F.relu(self.linear0(x))
+        # x = F.relu(self.linear0(x))
         outputs = torch.sigmoid(self.linear(x))
         return outputs
 
@@ -252,7 +260,7 @@ def train(model, device, train_loader, test_loader, optimizer, criterion, epoch,
     # Add test at initial point
     if epoch == 1:
         result0 = test(model, device, test_loader, criterion, multi_class=multi_class)
-        data.append((0.,) + result0)
+        data.append((0.,) + result0 + (0,))
 
     # Training loop
     for batch_idx, (x, y) in enumerate(train_loader):
@@ -289,12 +297,18 @@ def train(model, device, train_loader, test_loader, optimizer, criterion, epoch,
             # Show results if last batch
             result = test(model, device, test_loader, criterion,
                           multi_class=multi_class, show_results=last_epoch)
-            data.append((ep,) + result)
+            if 'alpha_hist' in optimizer.param_groups[0]:
+                alpha_avgs = [sum(grp['alpha_hist']) / len(grp['alpha_hist']) for grp in optimizer.param_groups]
+                alpha_avg = sum(alpha_avgs) / len(alpha_avgs)
+            else:
+                alpha_avg = 1e-7  # doesn't matter
+            data.append((ep,) + result + (alpha_avg,))
 
     return data
 
 
 def init_optim(params, args):
+    ### Adam family ###
     if args.optimizer == "Adam":
         optimizer = optim.Adam(params, lr=args.lr, betas=(args.beta1, args.beta2),
                                eps=args.alpha, weight_decay=args.weight_decay)
@@ -304,31 +318,39 @@ def init_optim(params, args):
     elif args.optimizer == "Adagrad":
         optimizer = optim.Adagrad(params, lr=args.lr, lr_decay=args.lr_decay,
                                   eps=args.alpha, weight_decay=args.weight_decay)
+    ### Hessian diagonal preconditioning ###
     elif args.optimizer == "SGD":
         if args.precond == "hutchinson":
-            optimizer = ScaledSGD(params, lr=args.lr, beta=args.beta2, alpha=args.alpha,
-                                  warmup=args.warmup)
+            optimizer = ScaledSGD(params, lr=args.lr,
+                                  momentum=args.beta1, weight_decay=args.weight_decay,
+                                  beta=args.beta2, alpha=args.alpha, warmup=args.warmup)
         else:
-            optimizer = optim.SGD(params, lr=args.lr, momentum=args.beta1,
-                                  weight_decay=args.weight_decay)
+            optimizer = optim.SGD(params, lr=args.lr,
+                                  momentum=args.beta1, weight_decay=args.weight_decay)
     elif args.optimizer == "SVRG":
         if args.precond == "hutchinson":
             optimizer = ScaledSVRG(params, lr=args.lr, period=args.period,
+                                   momentum=args.beta1, weight_decay=args.weight_decay,
                                    beta=args.beta2, alpha=args.alpha, warmup=args.warmup)
         else:
-            raise NotImplementedError()
+            optimizer = SVRG(params, lr=args.lr, period=args.period,
+                             momentum=args.beta1, weight_decay=args.weight_decay)
     elif args.optimizer == "SARAH":
         if args.precond == "hutchinson":
             optimizer = ScaledSARAH(params, lr=args.lr, period=args.period,
+                                    momentum=args.beta1, weight_decay=args.weight_decay,
                                     beta=args.beta2, alpha=args.alpha, warmup=args.warmup)
         else:
-            raise NotImplementedError()
+            optimizer = SARAH(params, lr=args.lr, period=args.period,
+                              momentum=args.beta1, weight_decay=args.weight_decay)
     elif args.optimizer in ("LSVRG", "L-SVRG"):
         if args.precond == "hutchinson":
             optimizer = ScaledLSVRG(params, lr=args.lr, p=args.p,
+                                    momentum=args.beta1, weight_decay=args.weight_decay,
                                     beta=args.beta2, alpha=args.alpha, warmup=args.warmup)
         else:
-            raise NotImplementedError()
+            optimizer = LSVRG(params, lr=args.lr, p=args.p,
+                              momentum=args.beta1, weight_decay=args.weight_decay)
     return optimizer
 
 
@@ -379,6 +401,7 @@ def run(args):
         args.period = round(args.period * len(train_loader))  # change period to num batches
 
         # Loss and optimizer
+        args.p = 1 - 1 / len(train_loader) if args.p == 'auto' else float(args.p)
         criterion = F.cross_entropy
         optimizer = init_optim(model.parameters(), args)
 
@@ -420,6 +443,7 @@ def run(args):
         args.period = round(args.period * len(train_loader))  # change period to num batches
 
         # Loss and optimizer
+        args.p = 1 - 1 / len(train_loader) if args.p == 'auto' else float(args.p)
         criterion = F.binary_cross_entropy
         optimizer = init_optim(model.parameters(), args)
 

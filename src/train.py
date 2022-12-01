@@ -4,9 +4,6 @@ import argparse
 import pickle
 import os
 import numpy as np
-import matplotlib.pyplot as plt
-import sklearn
-import scipy
 from joblib import Memory
 from sklearn.datasets import load_svmlight_file
 from sklearn.preprocessing import normalize
@@ -21,7 +18,7 @@ DATASET_DIR = "datasets"
 DATASETS = ("a1a", "a9a", "rcv1", "covtype", "real-sim", "w8a", "ijcnn1", "news20",)
 # @TODO: allow case-insensitive arg for optimizer, but keep canonical name
 OPTIMIZERS = ("SGD", "SARAH", "PAGE", "OASIS", "SVRG", "L-SVRG", "LSVRG",
-              "SuperSGD", "SuperLSVRG", "SuperSARAH", "Adam", "Adagrad", "Adadelta")
+              "SuperSGD", "SuperLSVRG", "SuperL-SVRG", "SuperSARAH", "Adam", "Adagrad", "Adadelta")
 # OPTIMIZERS = ("sgd", "sarah", "page", "oasis", "svrg", "l-svrg", "lsvrg", "adam", "adagrad", "adadelta")
 LOSSES = ("logistic", "nllsq")
 
@@ -63,7 +60,7 @@ def parse_args(namespace=None):
                         help="Momentum of gradient first moment.")
     parser.add_argument("--beta2", "--beta", "--rho", dest="beta2", default=0.999,
                         help="Momentum of gradient second moment.")
-    parser.add_argument("--alpha", "--eps", type=float, default=1e-7,
+    parser.add_argument("--alpha", "--eps", default=1e-7,
                         help="Equivalent to 'eps' in Adam (e.g. see pytorch docs).")
     parser.add_argument("--precond_warmup", type=int, default=100,
                         help="Num of samples for initializing diagonal in hutchinson's method.")
@@ -79,8 +76,14 @@ def parse_args(namespace=None):
 
     # Parse command line args
     args = parser.parse_args(namespace=namespace)
-    if args.beta2 != "avg":
+    if args.beta2 not in ("avg", "auto"):
         args.beta2 = float(args.beta2)
+
+    if args.alpha not in ("super", "auto"):
+        args.alpha = float(args.alpha)
+    else:
+        args.optimizer = f"Super{args.optimizer}"
+
 
     return args
 
@@ -153,7 +156,7 @@ def train(args):
 
     print(f"Learning rate = {args.lr}")
     print(f"Batch size = {args.BS}")
-    if args.optimizer in ("LSVRG", "L-SVRG", "SuperLSVRG"):
+    if args.optimizer in ("LSVRG", "L-SVRG", "SuperLSVRG", "SuperL-SVRG"):
         args.p = 1 - 1 / loss.num_data**0.5 if args.p == 'auto' else float(args.p)
         print(f"p = {args.p}")
     print(f"Running {args.optimizer} for {args.T} epochs...")
@@ -181,7 +184,7 @@ def train(args):
 
     elif args.optimizer == "SuperSGD":
         wopt, data = run_SuperSGD(X,y,w,loss, **new_kwargs)
-    elif args.optimizer == "SuperLSVRG":
+    elif args.optimizer in ("SuperLSVRG", "SuperL-SVRG"):
         wopt, data = run_SuperLSVRG(X,y,w,loss, p=args.p, **new_kwargs)
     elif args.optimizer == "SuperSARAH":
         wopt, data = run_SuperSARAH(X,y,w,loss, **new_kwargs)
