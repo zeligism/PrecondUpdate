@@ -182,7 +182,7 @@ class ScaledSVRG(ScaledSGD):
             for p in group['params']:
                 self.state[p]['orig'] = p.detach().clone()
                 self.state[p]['orig_grad'] = p.grad.detach().clone()
-                p.set_(self.state[p]['ref'].data)
+                p.copy_(self.state[p]['ref'].data)
         # Gather stochastic grads of loss on ref params
         closure()
         # Reset params and update grads
@@ -210,7 +210,7 @@ class ScaledSVRG(ScaledSGD):
                 # precondition grad and take a step
                 if 'D' in self.state[p]:
                     grad.mul_(self.state[p]['D']**-1)
-                p.set_(orig_param - group['lr'] * grad)
+                p.copy_(orig_param - group['lr'] * grad)
                 p.grad.detach_()
                 p.grad.zero_()
                 self.state[p]['orig'] = None
