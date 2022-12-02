@@ -139,20 +139,24 @@ class ScaledOptimizer(optim.Optimizer):
             dot = 0.
             for p in group['params']:
                 pstate = self.state[p]
-                # precondition step
                 delta = pstate['orig'] - p
-                effective_grad = delta / group['lr']
-                if 'D' in self.state[p]:
-                    with torch.no_grad():
-                        # p.copy_(pstate['orig'] - pstate['D']**-1 * delta)
-                        p.copy_(pstate['orig']).addcdiv_(-delta, pstate['D'])
                 # for checking backtracking condition
-                dot += torch.sum(effective_grad * (pstate['orig'] - p)).item()
-                gradnorm_sq += torch.sum(effective_grad**2).item()
-            if 4 * group['alpha'] * dot >= gradnorm_sq:
-                group['reg_const'] = max(0.25 * group['reg_const'], group['reg_const_min'])
-            else:
-                group['reg_const'] = 4 * group['reg_const']
+                if 'prev_delta' in pstate:
+                    grad = delta / group['lr']  # the effective grad
+                    dot += torch.sum(grad * pstate['prev_delta']).item()
+                    gradnorm_sq += torch.sum(grad**2).item()
+                # precondition step
+                pstate['prev_delta'] = delta.detach().clone()
+                if 'D' in self.state[p]:
+                    p.copy_(pstate['orig'] - delta / pstate['D'])
+                    # p.copy_(pstate['orig']).addcdiv_(-delta, pstate['D'])
+
+            # backtracking condition
+            if not (dot == 0. and gradnorm_sq == 0):
+                if 4 * group['alpha'] * dot >= gradnorm_sq:
+                    group['reg_const'] = max(0.25 * group['reg_const'], group['reg_const_min'])
+                else:
+                    group['reg_const'] = 4 * group['reg_const']
 
         self.global_state['t'] += 1
         return loss

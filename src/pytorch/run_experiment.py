@@ -22,6 +22,7 @@ HP_DICT = {
     "lr": (2**-4, 2**-6, 2**-8, 2**-10, 2**-12, 2**-14),
     "precond": ("hutchinson",),
     "warmup": (100,),
+    # "beta1": (0.0, 0.9),  # TODO: should we also test with momentum?
     "beta2": ("avg", 0.999, 0.99),
     "alpha": ("super", 1e-1, 1e-3, 1e-7),
 }
@@ -82,6 +83,8 @@ def main():
             hp['precond'] = None
             hp['beta1'] = 0.9
             hp['alpha'] = 1e-8
+        else:
+            hp['beta1'] = 0.0  # TODO: should we also test with momentum?
 
         if hp['beta2'] == "avg" and hp['precond'] != "hutchinson":
             continue
@@ -101,6 +104,7 @@ def main():
 
         if hp['precond'] == "hutchinson":
             args_str += f",precond={hp['precond']}"
+            # args_str += f",beta1={hp['beta1']}"  TODO: should we also test with momentum?
             args_str += f",beta2={hp['beta2']}"
             args_str += f",alpha={hp['alpha']}"
             if 'warmup' in hp:
