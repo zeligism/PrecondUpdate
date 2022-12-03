@@ -40,7 +40,6 @@ class Preconditioner:
             self.diagonal = D
 
         elif self.precond_type == "hutchinson":
-            assert self.beta2 == "avg" or (0. <= self.beta2 and self.beta2 <= 1.)
             if plot_stats:
                 H_diag = loss.hessian_diag(w)
                 D_errors = []
@@ -58,7 +57,6 @@ class Preconditioner:
             self.diagonal = D
 
         elif self.precond_type == "hutch++":
-            assert self.beta2 == "avg" or (0. <= self.beta2 and self.beta2 <= 1.)
             D = 0.
             for _ in range(self.warmup):
                 m = self.zsamples
@@ -118,8 +116,8 @@ class Preconditioner:
         elif self.precond_type == "hutchinson":
             # estimate hessian diagonal
             D = 0.0
-            averaging_beta = 1 - 1 / (self.t + self.warmup)
-            beta = averaging_beta if self.beta2 == "avg" else self.beta2
+            avg_beta = 1 - 1 / (self.t + self.warmup)
+            beta = avg_beta if not isinstance(self.beta2, float) else self.beta2
             for _ in range(self.zsamples):
                 z = 2 * sample_bernoulli(w.shape) - 1
                 D += z * loss.hvp(w, z, i) / self.zsamples
@@ -131,8 +129,8 @@ class Preconditioner:
         elif self.precond_type == "hutch++":
             # estimate hessian diagonal
             D = 0.0
-            averaging_beta = 1 - 1 / (self.t + self.warmup)
-            beta = averaging_beta if self.beta2 == "avg" else self.beta2
+            avg_beta = 1 - 1 / (self.t + self.warmup)
+            beta = avg_beta if not isinstance(self.beta2, float) else self.beta2
             m = self.zsamples
             S = np.random.randn(w.shape[0], m)
             G = np.random.randn(w.shape[0], m)

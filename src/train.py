@@ -83,7 +83,7 @@ def parse_args(namespace=None):
         args.alpha = float(args.alpha)
     else:
         args.optimizer = f"Super{args.optimizer}"
-
+        args.alpha = 1e-10
 
     return args
 
