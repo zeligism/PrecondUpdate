@@ -85,8 +85,6 @@ def parse_args(namespace=None):
     args = parser.parse_args(namespace=namespace)
     if args.beta2 not in ("avg", "auto"):
         args.beta2 = float(args.beta2)
-    if args.alpha not in ("super", "auto"):
-        args.alpha = float(args.alpha)
 
     return args
 

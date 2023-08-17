@@ -8,7 +8,7 @@ from joblib import Memory
 from sklearn.datasets import load_svmlight_file
 from sklearn.preprocessing import normalize
 
-import optimizer_old as OLD
+import _old_optimizer as OLD
 from optimizer import *
 from loss import *
 from plot import *
@@ -17,8 +17,7 @@ mem = Memory("./mycache")
 DATASET_DIR = "datasets"
 DATASETS = ("a1a", "a9a", "rcv1", "covtype", "real-sim", "w8a", "ijcnn1", "news20",)
 # @TODO: allow case-insensitive arg for optimizer, but keep canonical name
-OPTIMIZERS = ("SGD", "SARAH", "PAGE", "OASIS", "SVRG", "L-SVRG", "LSVRG",
-              "SuperSGD", "SuperLSVRG", "SuperL-SVRG", "SuperSARAH", "Adam", "Adagrad", "Adadelta")
+OPTIMIZERS = ("SGD", "SARAH", "PAGE", "OASIS", "SVRG", "L-SVRG", "LSVRG", "Adam", "Adagrad", "Adadelta")
 # OPTIMIZERS = ("sgd", "sarah", "page", "oasis", "svrg", "l-svrg", "lsvrg", "adam", "adagrad", "adadelta")
 LOSSES = ("logistic", "nllsq")
 
@@ -78,12 +77,6 @@ def parse_args(namespace=None):
     args = parser.parse_args(namespace=namespace)
     if args.beta2 not in ("avg", "auto"):
         args.beta2 = float(args.beta2)
-
-    if args.alpha not in ("super", "auto"):
-        args.alpha = float(args.alpha)
-    else:
-        args.optimizer = f"Super{args.optimizer}"
-        args.alpha = 1e-10
 
     return args
 
@@ -156,7 +149,7 @@ def train(args):
 
     print(f"Learning rate = {args.lr}")
     print(f"Batch size = {args.BS}")
-    if args.optimizer in ("LSVRG", "L-SVRG", "SuperLSVRG", "SuperL-SVRG"):
+    if args.optimizer in ("LSVRG", "L-SVRG"):
         args.p = 1 - 1 / loss.num_data**0.5 if args.p == 'auto' else float(args.p)
         print(f"p = {args.p}")
     print(f"Running {args.optimizer} for {args.T} epochs...")
@@ -181,13 +174,6 @@ def train(args):
             wopt, data = OLD.L_SVRG(X,y, p=args.p, **kwargs)
         else:
             wopt, data = run_LSVRG(X,y,w,loss, p=args.p, **new_kwargs)
-
-    elif args.optimizer == "SuperSGD":
-        wopt, data = run_SuperSGD(X,y,w,loss, **new_kwargs)
-    elif args.optimizer in ("SuperLSVRG", "SuperL-SVRG"):
-        wopt, data = run_SuperLSVRG(X,y,w,loss, p=args.p, **new_kwargs)
-    elif args.optimizer == "SuperSARAH":
-        wopt, data = run_SuperSARAH(X,y,w,loss, **new_kwargs)
 
     elif args.optimizer == "Adam":
         if args.old:

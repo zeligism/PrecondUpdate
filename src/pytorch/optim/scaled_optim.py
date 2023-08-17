@@ -5,16 +5,11 @@ from .vr import *
 
 
 class ScaledOptimizer(optim.Optimizer):
-    def init_precond(self, warmup=100, beta=0.999, alpha=1e-5,
-                     reg_const=1.0, reg_const_min=1e-5, reg_pow=2 / 3):
+    def init_precond(self, warmup=100, beta=0.999, alpha=1e-5):
         # TODO: just set all as global state
         for group in self.param_groups:
             group.setdefault('beta', beta)
             group.setdefault('alpha', alpha)
-            group.setdefault('super', alpha in ('auto', 'super'))
-            group.setdefault('reg_const', reg_const)
-            group.setdefault('reg_const_min', reg_const_min)
-            group.setdefault('reg_pow', reg_pow)
         self.global_state.setdefault('warmup', warmup)  # num of diagonal warmup iters
         self.global_state.setdefault('t', 0)  # num of step iters
 
@@ -23,10 +18,6 @@ class ScaledOptimizer(optim.Optimizer):
         for group in self.param_groups:
             group.setdefault('beta', 0.999)
             group.setdefault('alpha', 1e-5)
-            group.setdefault('super', False)
-            group.setdefault('reg_const', 1.0)
-            group.setdefault('reg_const_min', 1e-5)
-            group.setdefault('reg_pow', 1.0)
         self.global_state.setdefault('warmup', 1)  # num of diagonal warmup iters
         self.global_state.setdefault('t', 0)  # num of step iters
 
@@ -66,11 +57,6 @@ class ScaledOptimizer(optim.Optimizer):
                 gradnorm += torch.sum(grad**2).item()
                 pstate['grad_avg'] = grad.detach()
             gradnorm = gradnorm**0.5
-            if group['super']:
-                if 'alpha_hist' not in group:
-                    group['alpha_hist'] = []
-                group['alpha'] = group['reg_const'] * gradnorm**group['reg_pow']
-                group['alpha_hist'].append(group['alpha'])
         gz_sum.backward()
 
         with torch.no_grad():
@@ -149,14 +135,6 @@ class ScaledOptimizer(optim.Optimizer):
                 pstate['prev_delta'] = delta.detach().clone()
                 if 'D' in self.state[p]:
                     p.copy_(pstate['orig'] - delta / pstate['D'])
-                    # p.copy_(pstate['orig']).addcdiv_(-delta, pstate['D'])
-
-            # backtracking condition
-            if not (dot == 0. and gradnorm_sq == 0):
-                if 4 * group['alpha'] * dot >= gradnorm_sq:
-                    group['reg_const'] = max(0.25 * group['reg_const'], group['reg_const_min'])
-                else:
-                    group['reg_const'] = 4 * group['reg_const']
 
         self.global_state['t'] += 1
         return loss
