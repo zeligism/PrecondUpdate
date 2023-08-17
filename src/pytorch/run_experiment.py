@@ -5,7 +5,7 @@ import time
 from argparse import Namespace
 from itertools import product
 from random import random, shuffle
-from train import *
+from pytorch.train import *
 
 
 DRY_RUN = False  # for testing
@@ -13,8 +13,8 @@ LOG_DIR = "logs_torch"
 HP_DICT = {
     "epochs": (25,),
     "seed": range(10),
-    "dataset": ("mnist",),
-    "optimizer": ("Adam", "SARAH", "L-SVRG"),
+    "dataset": ("mnist", "cifar-10"),
+    "optimizer": ("Adam", "L-SVRG", "SARAH"),
     "batch_size": (128,),
     "p": (0.999,),
     "lr": (2**-4, 2**-6, 2**-8, 2**-10, 2**-12, 2**-14),
@@ -45,7 +45,7 @@ def main():
         hp = dict(zip(HP_DICT.keys(), hyperparams))
 
         ### Hard settings ###
-        if hp['optimizer'] in ("SGD", "Adam", "Adagrad", "Adadelta"):
+        if hp['optimizer'] in ("Adam", "Adagrad", "Adadelta"):
             hp['epochs'] *= 2
 
         if 'lr_decay' not in hp:
