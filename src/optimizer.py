@@ -53,7 +53,9 @@ class Preconditioner:
                     if plot_stats:
                         rel_error = np.linalg.norm(D - H_diag) / np.linalg.norm(H_diag)
                         D_errors.append(rel_error)
-            D = np.maximum(np.abs(D), self.alpha)
+            # D = np.maximum(np.abs(D), self.alpha)
+            self.m = np.zeros_like(w)
+            self.v = np.zeros_like(w)+1
             self.diagonal = D
 
         elif self.precond_type == "hutch++":
@@ -121,10 +123,24 @@ class Preconditioner:
             for _ in range(self.zsamples):
                 z = 2 * sample_bernoulli(w.shape) - 1
                 D += z * loss.hvp(w, z, i) / self.zsamples
-            D = np.abs(beta * self.diagonal + (1 - beta) * D)
-            D = np.maximum(D, self.alpha)
+            # D = np.abs(beta * self.diagonal + (1 - beta) * D)
+            # D = np.maximum(D, self.alpha)
+            # D = beta * self.diagonal + (1 - beta) * D
+            # self.diagonal = D
+            # precond_g = self.diagonal ** -1 * g
+            D = beta * self.diagonal + (1 - beta) * D
             self.diagonal = D
-            precond_g = self.diagonal**-1 * g
+            D = np.abs(D)
+            self.m = self.beta1 * self.m + (1 - self.beta1) * g
+            self.v = beta * self.v + (1 - beta) * (self.v**0.5 * np.abs(self.m))
+            # alpha = self.v**-(1)
+            # D[D < alpha] = alpha[D < alpha]
+
+            p = 2/3
+            alpha = np.sum(self.v**p)**(-1/p)
+            D[D < alpha] = alpha
+
+            precond_g = D**-1 * g
 
         elif self.precond_type == "hutch++":
             # estimate hessian diagonal

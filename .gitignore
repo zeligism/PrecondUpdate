@@ -7,3 +7,5 @@ src/__pycache__/
 .ipynb_checkpoints/
 logs*/
 __pycache__/
+_old/
+plot*.pdf

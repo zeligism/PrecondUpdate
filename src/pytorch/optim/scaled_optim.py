@@ -6,7 +6,7 @@ from .vr import *
 
 class ScaledOptimizer(optim.Optimizer):
     def init_precond(self, warmup=100, beta=0.999, alpha=1e-5,
-                     reg_const=1.0, reg_const_min=1e-5, reg_pow=2 / 3):
+                     reg_const=1.0, reg_const_min=1e-5, reg_const_max=1e5, reg_pow=2 / 3):
         # TODO: just set all as global state
         for group in self.param_groups:
             group.setdefault('beta', beta)
@@ -14,18 +14,20 @@ class ScaledOptimizer(optim.Optimizer):
             group.setdefault('super', alpha in ('auto', 'super'))
             group.setdefault('reg_const', reg_const)
             group.setdefault('reg_const_min', reg_const_min)
+            group.setdefault('reg_const_max', reg_const_max)
             group.setdefault('reg_pow', reg_pow)
         self.global_state.setdefault('warmup', warmup)  # num of diagonal warmup iters
         self.global_state.setdefault('t', 0)  # num of step iters
 
     def __setstate__(self, state):
-        self.__setstate__(state)
+        super().__setstate__(state)
         for group in self.param_groups:
             group.setdefault('beta', 0.999)
             group.setdefault('alpha', 1e-5)
             group.setdefault('super', False)
             group.setdefault('reg_const', 1.0)
             group.setdefault('reg_const_min', 1e-5)
+            group.setdefault('reg_const_max', 1e1)
             group.setdefault('reg_pow', 1.0)
         self.global_state.setdefault('warmup', 1)  # num of diagonal warmup iters
         self.global_state.setdefault('t', 0)  # num of step iters
@@ -119,44 +121,96 @@ class ScaledOptimizer(optim.Optimizer):
         elif t == warmup:
             print("Warm up done.")
 
-        ##### Update diagonal #####
-        closure(create_graph=True)
-        self.update_diagonal()
+        if not self.param_groups[0]['super']:
 
-        ##### Take step #####
-        # Store original params
-        for group in self.param_groups:
-            for p in group['params']:
-                pstate = self.state[p]
-                pstate['orig'] = p.detach().clone()
+            ##### Update diagonal #####
+            closure(create_graph=True)
+            self.update_diagonal()
 
-        # Take optimizer's step
-        loss = super().step(closure)
+            ##### Take step #####
+            # Take optimizer's step
+            loss = super().step(closure)
 
-        # Get the step and reapply it with preconditioning
-        for group in self.param_groups:
+            # Get the step and reapply it with preconditioning
+            regret = 0.
             gradnorm_sq = 0.
-            dot = 0.
-            for p in group['params']:
-                pstate = self.state[p]
-                delta = pstate['orig'] - p
-                # for checking backtracking condition
-                if 'prev_delta' in pstate:
-                    grad = delta / group['lr']  # the effective grad
-                    dot += torch.sum(grad * pstate['prev_delta']).item()
-                    gradnorm_sq += torch.sum(grad**2).item()
-                # precondition step
-                pstate['prev_delta'] = delta.detach().clone()
-                if 'D' in self.state[p]:
-                    p.copy_(pstate['orig'] - delta / pstate['D'])
-                    # p.copy_(pstate['orig']).addcdiv_(-delta, pstate['D'])
+            for group in self.param_groups:
+                for p in group['params']:
+                    pstate = self.state[p]
+                    delta = pstate['orig'] - p
+                    # for checking backtracking condition
+                    if 'prev_step' in pstate:
+                        grad = delta / group['lr']  # effective grad
+                        regret += torch.sum(grad * -pstate['prev_step']).item()
+                        gradnorm_sq += torch.sum(grad**2).item()
+                    # precondition step
+                    if 'D' in self.state[p]:
+                        p.copy_(pstate['orig'] - delta / pstate['D'])
+                        # p.copy_(pstate['orig']).addcdiv_(-delta, pstate['D'])
+                    pstate['prev_step'] = (-delta).detach().clone()
+                    # pstate['prev_step'] = ((p - pstate['orig']) / group['lr']).detach().clone()
 
             # backtracking condition
-            if not (dot == 0. and gradnorm_sq == 0):
-                if 4 * group['alpha'] * dot >= gradnorm_sq:
+            if not (regret == 0. and gradnorm_sq == 0):
+                if regret >= gradnorm_sq / (4 * group['alpha']):
                     group['reg_const'] = max(0.25 * group['reg_const'], group['reg_const_min'])
                 else:
                     group['reg_const'] = 4 * group['reg_const']
+
+        else:
+            ##### Take step #####
+            # Store original params
+            for group in self.param_groups:
+                for p in group['params']:
+                    pstate = self.state[p]
+                    pstate['orig'] = p.detach().clone()
+
+            # Get the step and reapply it with preconditioning
+            for backtrack_iter in range(10**10):
+                ##### Update diagonal #####
+                closure(create_graph=True)
+                self.update_diagonal()
+                loss = super().step(closure)
+                for group in self.param_groups:
+                    for p in group['params']:
+                        pstate = self.state[p]
+                        delta = pstate['orig'] - p
+                        # precondition step
+                        if 'D' in self.state[p]:
+                            p.copy_(pstate['orig'] - delta / pstate['D'])
+                        pstate['next'] = p.detach().clone()
+                # Calculate grad at next step
+                super().step(closure)
+                regret = 0.
+                gradnorm_sq = 0.
+                for group in self.param_groups:
+                    for p in group['params']:
+                        pstate = self.state[p]
+                        # for checking backtracking condition
+                        step = (pstate['next'] - pstate['orig']) / group['lr']  # effective grad on next params
+                        next_grad = (pstate['next'] - p) / group['lr']  # effective grad on next params
+                        regret += torch.sum(next_grad * -step).item()
+                        gradnorm_sq += torch.sum(next_grad**2).item()
+                # backtracking condition
+                if regret >= gradnorm_sq / (4 * group['alpha']):
+                    group['reg_const'] = max(0.25 * group['reg_const'], group['reg_const_min'])
+                    break
+                group['reg_const'] = 4 * group['reg_const']
+
+                if backtrack_iter + 1 == 40:
+                    print(f"Exceeded max backtracking iterations.")
+                    break
+                # Else set back orig params and repeat
+                for group in self.param_groups:
+                    for p in group['params']:
+                        pstate = self.state[p]
+                        p.copy_(pstate['orig'])
+
+            # Set new params
+            for group in self.param_groups:
+                for p in group['params']:
+                    pstate = self.state[p]
+                    p.copy_(pstate['next'])
 
         self.global_state['t'] += 1
         return loss

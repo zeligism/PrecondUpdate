@@ -122,8 +122,8 @@ def savefig(data, fname=None, title="Loss, gradient norm squared, and error"):
     ax[1,0].set_xlabel("Effective Passes")
     ax[1,0].grid()
 
-    ax[1,1].semilogy(data[:,0], 1 + data[:,4])
-    ax[1,1].set_ylabel(r"$\log (1+\alpha)$")
+    ax[1,1].semilogy(data[:,0], data[:,4])
+    ax[1,1].set_ylabel(r"$\log \alpha$")
     ax[1,1].set_xlabel("Effective Passes")
     ax[1,1].grid()
 

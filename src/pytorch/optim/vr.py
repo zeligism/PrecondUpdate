@@ -49,40 +49,45 @@ class SVRG(torch.optim.SGD):
             self.update_ref()
 
         ##### Take step #####
-        # First, define a variance-reduction closure that sets p.grad to the variance-reduced grad
+        # Augment closure s.t. p.grad is a variance-reduced grad
+        @torch.no_grad()
         def vr_closure():
-            # Gather stochastic grads on orig params
-            loss = closure()
-            # Store orig params and grads, and set params to ref params
+            # Store orig params
             for group in self.param_groups:
                 for p in group['params']:
                     pstate = self.state[p]
                     pstate['orig'] = p.detach().clone()
-                    pstate['orig_grad'] = p.grad.detach().clone()
-                    # set to ref params
-                    with torch.no_grad():
-                        p.copy_(pstate['ref'])
-            # Gather stochastic grads of loss on ref params
+            # Gather stochastic grads on orig params
+            loss = closure()
+            # Store grads, then set to ref params
+            for group in self.param_groups:
+                for p in group['params']:
+                    pstate = self.state[p]
+                    orig_grad = p.grad  #(pstate['orig'] - p) / group['lr']  # effective grad on orig params
+                    pstate['orig_grad'] = orig_grad.detach().clone()
+                    p.copy_(pstate['ref'])  # set to ref params
+                    p.grad = None
+            # Gather stochastic grads on ref params
             closure()
             gradnorm = 0.
             for group in self.param_groups:
                 for p in group['params']:
                     pstate = self.state[p]
-                    ref_grad = p.grad if p.grad is not None else 0.
+                    ref_grad = p.grad  #(pstate['ref'] - p) / group['lr']  # effective grad on ref params
                     orig_grad = pstate['orig_grad']
                     full_grad = pstate['full_grad']
                     if orig_grad is None:
                         continue
-                    # set variance-reduced grad
+                    # set variance-reduced grad to p.grad
                     p.grad.copy_(full_grad - ref_grad + orig_grad)
                     gradnorm += torch.sum(p.grad**2).item()
-                    ### Add this line for SVRG -> SARAH ###
+                    #---- Add this for SVRG -> SARAH ----#
                     if self.SARAH:
                         pstate['ref'] = pstate['orig'].detach().clone()
                         pstate['full_grad'] = p.grad.detach().clone()
+                    #------------------------------------#
                     # set to back to original params
-                    with torch.no_grad():
-                        p.copy_(pstate['orig'])
+                    p.copy_(pstate['orig'])
             gradnorm = gradnorm**0.5
             self.global_state['should_ref'] = gradnorm < 0.1 * self.global_state['ref_gradnorm']
             return loss

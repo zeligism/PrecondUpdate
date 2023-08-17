@@ -30,6 +30,7 @@ if EXP == 1:
         "alpha": (1e-1, 1e-3, 1e-7),
     }
 elif EXP == 2:
+    # python src/train.py -T 20 -s 0 --loss logistic --dataset a9a --corrupt -3 3 -BS 32 -lr 1e-3 --precond hutchinson --optimizer SGD --beta1 0 --beta2 0.999 --alpha 1e-7 --savefig sgd1.pdf
     LOG_DIR = "logs2"
     HP_DICT = {
         "T": (50,),
@@ -41,7 +42,7 @@ elif EXP == 2:
         "BS": (128,),
         "lr": (2**i for i in range(-16, 5, 2)),
         "precond": ("hutchinson",),
-        "beta2": ("avg", 0.1, 0.3, 0.6, 0.9, 0.99, 0.999, 1 - 1e-3, 1 - 1e-5, 1 - 1e-7, 1 - 1e-9, 1 - 1e-11),
+        "beta2": ("avg", 0.1, 0.3, 0.6, 0.9, 0.99, 1 - 1e-3, 1 - 1e-5, 1 - 1e-7, 1 - 1e-9, 1 - 1e-11),
         "alpha": (1e0, 1e-1, 1e-3, 1e-5, 1e-7, 1e-9, 1e-11),
     }
 
