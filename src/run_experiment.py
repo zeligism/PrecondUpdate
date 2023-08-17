@@ -7,9 +7,9 @@ from itertools import product
 from random import random, shuffle
 from train import *
 
-# @TODO: put this in yaml or something
+
 DRY_RUN = False  # for testing
-EXP = 2
+EXP = 1
 
 if EXP == 1:
     LOG_DIR = "logs1"
@@ -84,8 +84,8 @@ def main():
         hp = dict(zip(HP_DICT.keys(), hyperparams))
 
         ### Hard settings ###
-        if hp['optimizer'] in ("SGD", "Adam", "Adagrad", "Adadelta"):
-            hp['T'] *= 2
+        if hp['optimizer'] in ("Adam", "Adagrad", "Adadelta"):
+            hp['T'] *= 2  # because they are not scaled
 
         if 'lr_decay' not in hp:
             hp['lr_decay'] = 0
@@ -99,7 +99,8 @@ def main():
 
         if hp['optimizer'] == "Adam":
             hp['precond'] = None
-            hp['beta1'] = 0.9
+            # hp['beta1'] = 0.9  # XXX
+            hp['beta1'] = 0.0
             hp['alpha'] = 1e-8
 
         if hp['beta2'] == "avg" and hp['precond'] != "hutchinson":

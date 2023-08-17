@@ -23,9 +23,9 @@ from optim.scaled_optim import *
 mem = Memory("./mycache")
 DATASET_DIR = "datasets"
 LIBSVM_DATASETS = ("a1a", "a9a", "rcv1", "covtype", "real-sim", "w8a", "ijcnn1", "news20",)
-DATASETS = LIBSVM_DATASETS + ("mnist",)
+DATASETS = LIBSVM_DATASETS + ("mnist", "cifar-10")
 OPTIMIZERS = ("SGD", "SARAH", "SVRG", "L-SVRG", "LSVRG", "Adam", "Adagrad", "Adadelta")
-TEST_AT_EPOCH_END = False
+CIFAR_NORMALIZATION = ((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
 
 
 def parse_args(namespace=None):
@@ -72,7 +72,7 @@ def parse_args(namespace=None):
                         help="Momentum of gradient first moment.")
     parser.add_argument("--beta2", "--beta", "--rho", dest="beta2", default=0.999,
                         help="Momentum of gradient second moment.")
-    parser.add_argument("--alpha", "--eps", default=1e-7,
+    parser.add_argument("--alpha", "--eps", default=1e-7, type=float,
                         help="Equivalent to 'eps' in Adam (e.g. see pytorch docs).")
     parser.add_argument("--warmup", type=int, default=100,
                         help="Num of samples for initializing diagonal in hutchinson's method.")
@@ -85,8 +85,6 @@ def parse_args(namespace=None):
     args = parser.parse_args(namespace=namespace)
     if args.beta2 not in ("avg", "auto"):
         args.beta2 = float(args.beta2)
-    if args.alpha not in ("super", "auto"):
-        args.alpha = float(args.alpha)
 
     return args
 
@@ -198,6 +196,42 @@ class LeNet5(nn.Module):
         return x
 
 
+def conv_block(in_channels, out_channels, pool=False):
+    layers = [nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1), 
+              nn.BatchNorm2d(out_channels), 
+              nn.ReLU(inplace=True)]
+    if pool: layers.append(nn.MaxPool2d(2))
+    return nn.Sequential(*layers)
+
+
+class ResNet9(nn.Module):
+    def __init__(self, in_channels=3, num_classes=10):
+        super().__init__()
+        
+        self.conv1 = conv_block(in_channels, 64)
+        self.conv2 = conv_block(64, 128, pool=True)
+        self.res1 = nn.Sequential(conv_block(128, 128), conv_block(128, 128))
+        
+        self.conv3 = conv_block(128, 256, pool=True)
+        self.conv4 = conv_block(256, 512, pool=True)
+        self.res2 = nn.Sequential(conv_block(512, 512), conv_block(512, 512))
+        
+        self.classifier = nn.Sequential(nn.MaxPool2d(4), 
+                                        nn.Flatten(), 
+                                        nn.Linear(512, num_classes))
+
+    def forward(self, xb):
+        out = self.conv1(xb)
+        out = self.conv2(out)
+        out = self.res1(out) + out
+        out = self.conv3(out)
+        out = self.conv4(out)
+        out = self.res2(out) + out
+        out = self.classifier(out)
+        return out
+
+
+
 ########## Datasets ##########
 class LibSVMDataset(data_utils.Dataset):
     def __init__(self, dataset):
@@ -219,7 +253,7 @@ class LibSVMDataset(data_utils.Dataset):
 
 
 ########## Train ##########
-def test(model, device, test_loader, criterion, multi_class=False, show_results=False):
+def test(model, device, test_loader, criterion, show_results=False):
     model.eval()
     test_loss = 0
     correct = 0
@@ -230,7 +264,7 @@ def test(model, device, test_loader, criterion, multi_class=False, show_results=
         loss.backward()
         test_loss += loss.item()
         # Accuracy
-        if multi_class:
+        if y_pred.size(1) > 1:
             pred = y_pred.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
         else:
             pred = torch.round(y_pred)
@@ -254,13 +288,13 @@ def test(model, device, test_loader, criterion, multi_class=False, show_results=
 
 
 def train(model, device, train_loader, test_loader, optimizer, criterion, epoch,
-          log_interval=50, test_interval=0.25, multi_class=False):
+          log_interval=50, test_interval=0.25):
     model.train()
     data = []
     # Add test at initial point
     if epoch == 1:
-        result0 = test(model, device, test_loader, criterion, multi_class=multi_class)
-        data.append((0.,) + result0 + (0,))
+        result0 = test(model, device, test_loader, criterion)
+        data.append((0.,) + result0 + (0, time.time()))
 
     # Training loop
     for batch_idx, (x, y) in enumerate(train_loader):
@@ -291,18 +325,21 @@ def train(model, device, train_loader, test_loader, optimizer, criterion, epoch,
         last_epoch = batch_idx == len(train_loader) - 1
         if should_test or last_epoch:
             ep = epoch - 1 + (batch_idx + 1) / len(train_loader)
-            # XXX: Ugly hack but whatever
+            # scaled optimizers compute two gradients in one step (+warmup)
+            if isinstance(optimizer, ScaledOptimizer):
+                ep *= 2
+            # variance reduced optimizers compute gradient over full dataset
             if hasattr(optimizer, 'global_state') and 'ref_evals' in optimizer.global_state:
                 ep += optimizer.global_state['ref_evals']
             # Show results if last batch
             result = test(model, device, test_loader, criterion,
-                          multi_class=multi_class, show_results=last_epoch)
+                          show_results=last_epoch)
             if 'alpha_hist' in optimizer.param_groups[0]:
                 alpha_avgs = [sum(grp['alpha_hist']) / len(grp['alpha_hist']) for grp in optimizer.param_groups]
                 alpha_avg = sum(alpha_avgs) / len(alpha_avgs)
             else:
                 alpha_avg = 1e-7  # doesn't matter
-            data.append((ep,) + result + (alpha_avg,))
+            data.append((ep,) + result + (alpha_avg, time.time()))
 
     return data
 
@@ -354,6 +391,96 @@ def init_optim(params, args):
     return optimizer
 
 
+def load_dataset(dataset):
+    if dataset in LIBSVM_DATASETS:
+        dataset_path = os.path.join(DATASET_DIR, dataset)
+        if not os.path.isfile(dataset_path):
+            raise FileNotFoundError(f"Could not find dataset at '{dataset_path}'")
+        train_dataset = LibSVMDataset(dataset_path)
+        test_dataset = train_dataset
+
+    elif dataset == "mnist":
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,))
+        ])
+        train_dataset = datasets.MNIST(DATASET_DIR, train=True,
+                                        download=True, transform=transform)
+        test_dataset = datasets.MNIST(DATASET_DIR, train=False,
+                                        download=True, transform=transform)
+
+    elif dataset in "cifar-10":
+        transform_train = transforms.Compose([
+            # transforms.ToPILImage(),
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(*CIFAR_NORMALIZATION),
+        ])
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(*CIFAR_NORMALIZATION),
+        ])
+        train_dataset = datasets.CIFAR10(DATASET_DIR, train=True,
+                                        download=True, transform=transform_train)
+        test_dataset = datasets.CIFAR10(DATASET_DIR, train=False,
+                                        download=True, transform=transform_test)
+
+    else:
+        raise NotImplementedError(dataset)
+
+    return train_dataset, test_dataset
+    
+
+def run_experiment(args, device):
+    # Load datasets
+    train_dataset, test_dataset = load_dataset(args.dataset)
+
+    # All runs start are init based on the model seed
+    print(f"Initializing model with random seed {args.model_seed}.")
+    torch.manual_seed(args.model_seed)
+    if args.dataset in LIBSVM_DATASETS:
+        model = LogisticRegression(train_dataset.feature_dim, 1)
+        criterion = nn.BCELoss()
+    elif args.dataset == "mnist":
+        model = LeNet5()
+        criterion = nn.CrossEntropyLoss()
+    elif args.dataset == "cifar-10":
+        model = ResNet9()
+        criterion = nn.CrossEntropyLoss()
+    else:
+        raise NotImplementedError(args.dataset)
+    
+    model, criterion = model.to(device), criterion.to(device)
+
+    # Now set the random seed
+    if args.seed is not None:
+        print(f"Setting random seed to {args.seed}.")
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+
+    # Initialize DataLoaders
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                shuffle=True, num_workers=args.num_workers)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
+                                                shuffle=False, num_workers=args.num_workers)
+
+    # Adjust some args based on length of dataset
+    args.period = round(args.period * len(train_loader))  # change period to num batches
+    args.p = 1 - 1 / len(train_loader) if args.p == 'auto' else float(args.p)
+    # Init optimizer
+    optimizer = init_optim(model.parameters(), args)
+
+    # Train
+    data = []
+    for epoch in range(1, args.epochs + 1):
+        results = train(model, device, train_loader, test_loader,
+                        optimizer, criterion, epoch)
+        data += results
+
+    return data
+
+
 def run(args):
     use_cuda = torch.cuda.is_available() and args.cuda
     use_mps = torch.backends.mps.is_available() and args.cuda
@@ -367,94 +494,8 @@ def run(args):
     print(f"Num workers: {args.num_workers}")
     print(f"Batch size: {args.batch_size}")
     print(f"Device: {device}")
-
-    #---------- MNIST ----------#
-    if args.dataset == "mnist":
-        # Initialize Dataset
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,))
-        ])
-        train_dataset = datasets.MNIST(DATASET_DIR, train=True,
-                                       download=True, transform=transform)
-        test_dataset = datasets.MNIST(DATASET_DIR, train=False,
-                                      transform=transform)
-
-        # All runs start are init based on the model seed
-        print(f"Initializing model with random seed {args.model_seed}.")
-        torch.manual_seed(args.model_seed)
-        # model = Net().to(device)
-        model = LeNet5().to(device)
-
-        # Now set the random seed
-        if args.seed is not None:
-            print(f"Setting random seed to {args.seed}.")
-            np.random.seed(args.seed)
-            torch.manual_seed(args.seed)
-
-        # Initialize DataLoaders
-        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                                   shuffle=True, num_workers=args.num_workers)
-        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
-                                                  shuffle=False, num_workers=args.num_workers)
-
-        args.period = round(args.period * len(train_loader))  # change period to num batches
-
-        # Loss and optimizer
-        args.p = 1 - 1 / len(train_loader) if args.p == 'auto' else float(args.p)
-        criterion = F.cross_entropy
-        optimizer = init_optim(model.parameters(), args)
-
-        # Train
-        data = []
-        for epoch in range(1, args.epochs + 1):
-            results = train(model, device, train_loader, test_loader,
-                            optimizer, criterion, epoch, multi_class=True)
-            data += results
-            # Test at the end to show results
-            if TEST_AT_EPOCH_END:
-                test(model, device, test_loader, criterion, multi_class=True, show_results=True)
-
-    #---------- LIBSVM ----------#
-    elif args.dataset in LIBSVM_DATASETS:
-        # Initialize Dataset
-        dataset_path = os.path.join(DATASET_DIR, args.dataset)
-        if not os.path.isfile(dataset_path):
-            raise FileNotFoundError(f"Could not find dataset at '{dataset_path}'")
-        libsvm_dataset = LibSVMDataset(dataset_path)
-
-        # All runs start are init based on the model seed
-        print(f"Initializing model with random seed {args.model_seed}.")
-        torch.manual_seed(args.model_seed)
-        model = LogisticRegression(libsvm_dataset.feature_dim, 1).to(device)
-
-        # Now set random seed
-        if args.seed is not None:
-            print(f"Setting random seed to {args.seed}.")
-            np.random.seed(args.seed)
-            torch.manual_seed(args.seed)
-
-        # Initialize DataLoaders
-        train_loader = torch.utils.data.DataLoader(libsvm_dataset, batch_size=args.batch_size,
-                                                   shuffle=True, num_workers=args.num_workers)
-        test_loader = torch.utils.data.DataLoader(libsvm_dataset, batch_size=args.batch_size,
-                                                  shuffle=False, num_workers=args.num_workers)
-
-        args.period = round(args.period * len(train_loader))  # change period to num batches
-
-        # Loss and optimizer
-        args.p = 1 - 1 / len(train_loader) if args.p == 'auto' else float(args.p)
-        criterion = F.binary_cross_entropy
-        optimizer = init_optim(model.parameters(), args)
-
-        # Train
-        data = []
-        for epoch in range(1, args.epochs + 1):
-            results = train(model, device, train_loader, test_loader, optimizer, criterion, epoch)
-            data += results
-            # Test at the end to show results
-            if TEST_AT_EPOCH_END:
-                test(model, device, test_loader, criterion, show_results=True)
+    
+    data = run_experiment(args, device)
 
     # Show results
     if args.savefig is not None:

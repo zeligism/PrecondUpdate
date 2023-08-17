@@ -3,7 +3,11 @@ datasets/
 log/
 plots/
 mycache/
-src/__pycache__/
 .ipynb_checkpoints/
-logs*/
+src/__pycache__/
 __pycache__/
+logs*/
+logs*
+plots*/
+plot*.pdf
+_old/
