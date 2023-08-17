@@ -1,4 +1,5 @@
 
+import time
 import numpy as np
 from loss import LogisticLoss
 from plot import plot_hessian_acc, plot_hessian_approx
@@ -12,7 +13,6 @@ def sample_bernoulli(size=1):
     return np.random.randint(0, 2, size)
 
 
-# @TODO: separate into multiple objects
 class Preconditioner:
     # Type of possible preconditioners
     TYPES = ("none", "hessian", "hutchinson", "hutch++", "adam", "adagrad", "adadelta", "rmsprop", "momentum")
@@ -53,7 +53,6 @@ class Preconditioner:
                     if plot_stats:
                         rel_error = np.linalg.norm(D - H_diag) / np.linalg.norm(H_diag)
                         D_errors.append(rel_error)
-            D = np.maximum(np.abs(D), self.alpha)
             self.diagonal = D
 
         elif self.precond_type == "hutch++":
@@ -71,7 +70,6 @@ class Preconditioner:
                 H1 = Q * hvp_Q
                 H2 = P * hvp_P
                 D += (H1.sum(1) + H2.sum(1) / m) / self.warmup
-            D = np.maximum(np.abs(D), self.alpha)
             self.diagonal = D
 
         elif self.precond_type == "momentum":
@@ -111,7 +109,7 @@ class Preconditioner:
             D = loss.hessian_diag(w)
             D = np.maximum(np.abs(D), self.alpha)
             self.diagonal = D
-            precond_g = self.diagonal**-1 * g
+            precond_g = g / self.diagonal
 
         elif self.precond_type == "hutchinson":
             # estimate hessian diagonal
@@ -121,10 +119,10 @@ class Preconditioner:
             for _ in range(self.zsamples):
                 z = 2 * sample_bernoulli(w.shape) - 1
                 D += z * loss.hvp(w, z, i) / self.zsamples
-            D = np.abs(beta * self.diagonal + (1 - beta) * D)
-            D = np.maximum(D, self.alpha)
+            D = beta * self.diagonal + (1 - beta) * D
             self.diagonal = D
-            precond_g = self.diagonal**-1 * g
+            D_hat = np.maximum(np.abs(D), self.alpha)
+            precond_g = g / D_hat
 
         elif self.precond_type == "hutch++":
             # estimate hessian diagonal
@@ -142,10 +140,10 @@ class Preconditioner:
             H1 = Q * hvp_Q
             H2 = P * hvp_P
             D += H1.sum(1) + H2.sum(1) / m
-            D = np.abs(beta * self.diagonal + (1 - beta) * D)
-            D = np.maximum(D, self.alpha)
+            D = beta * self.diagonal + (1 - beta) * D
             self.diagonal = D
-            precond_g = self.diagonal**-1 * g
+            D_hat = np.maximum(np.abs(D), self.alpha)
+            precond_g = g / D_hat
 
         elif self.precond_type == "momentum":
             self.m = self.beta1 * self.m + (1 - self.beta1) * g
@@ -154,7 +152,7 @@ class Preconditioner:
         elif self.precond_type == "rmsprop":
             self.v = self.beta2 * self.v + (1 - self.beta2) * g**2
             self.diagonal = np.sqrt(self.v) + self.alpha
-            precond_g = self.diagonal**-1 * g
+            precond_g = g / self.diagonal
 
         elif self.precond_type == "adam":
             self.m = self.beta1 * self.m + (1 - self.beta1) * g
@@ -162,18 +160,18 @@ class Preconditioner:
             m_corr = self.m / (1 - self.beta1 ** self.t)
             v_corr = self.v / (1 - self.beta2 ** self.t)
             self.diagonal = np.sqrt(v_corr) + self.alpha
-            precond_g = self.diagonal**-1 * m_corr
+            precond_g = m_corr / self.diagonal
 
         elif self.precond_type == "adadelta":
             self.v = self.beta2 * self.v + (1 - self.beta2) * g**2
             self.diagonal = np.sqrt(self.v + self.alpha) / np.sqrt(self.u + self.alpha)
-            precond_g = self.diagonal**-1 * g
+            precond_g = g / self.diagonal
             self.u = self.beta2 * self.u + (1 - self.beta2) * precond_g**2
 
         elif self.precond_type == "adagrad":
             self.v += g**2
             self.diagonal = np.sqrt(self.v) + self.alpha
-            precond_g = self.diagonal**-1 * g
+            precond_g = g / self.diagonal
 
         else:
             precond_g = g
@@ -182,19 +180,22 @@ class Preconditioner:
 
 
 class SGD:
-    def __init__(self, w, loss, BS=1, lr=0.0002, lr_decay=0, history_freq_per_epoch=5):
+    def __init__(self, w, loss, BS=1, lr=0.0002, lr_decay=0,
+                 history_freq_per_epoch=5, eval_diag_error=False):
         self.w = w
         self.loss = loss
-        self.N = self.loss.num_data  # @TODO: change N to num_data?
+        self.N = self.loss.num_data
         self.BS = BS
         self.base_lr = lr
         # divide lr_decay by num updates per epoch to get approx `base_lr/(ep+1)`
         self.lr_decay = lr_decay / (self.N // self.BS)
         self.history_freq_per_epoch = history_freq_per_epoch
+        self.eval_diag_error = eval_diag_error
         self.reset_history()
         self.ep = 0  # effective passes over dataset
         self.t = 0  # num of updates/steps
         self.precond = None  # preconditioner
+        self.starttime = time.time()
 
     def precondition(self, *args, **kwargs):
         self.precond = Preconditioner(*args, **kwargs)
@@ -204,8 +205,9 @@ class SGD:
         if self.precond is not None:
             if self.precond.resample:
                 i = np.random.choice(self.N, self.BS)
-                self.ep += self.BS / self.N
             g = self.precond.update(self.w, self.loss, i, g)
+            if self.precond.precond_type in ("hutchinson", "hutch++"):
+                self.ep += self.BS / self.N  # these methods use two gradients
         return g
 
     def init_run(self):
@@ -264,18 +266,19 @@ class SGD:
         error = np.mean(prediction < 0)  # wrong prediction -> 100% error
         error += 0.5 * np.mean(prediction == 0)  # ambiguous prediction -> 50% error
 
-        # Preconditioner statistics @TODO: when should we report this?
+        # Preconditioner statistics
         D_ratio = 0.
         if self.precond is not None:
             D_ratio = np.mean(self.precond.diagonal > self.precond.alpha)
 
         H_diag_err = 0.
-        if self.precond == "hutchinson":
-            # H_diag = self.loss.hessian_diag(self.w)
-            # H_diag_err = np.linalg.norm(self.precond.diagonal - H_diag) / np.linalg.norm(H_diag)
-            pass
+        if self.eval_diag_error and self.precond in ("hutchinson", "hutch++"):
+            H_diag = self.loss.hessian_diag(self.w)
+            H_diag_err = np.linalg.norm(self.precond.diagonal - H_diag) / np.linalg.norm(H_diag)
+        
+        walltime = time.time() - self.starttime
 
-        return (self.ep, loss, g_norm, error, D_ratio, H_diag_err)
+        return (self.ep, loss, g_norm, error, D_ratio, H_diag_err, walltime)
 
 
 class SVRG(SGD):
@@ -451,7 +454,7 @@ class Adadelta(SGD):
 
 
 ###############################################################################
-# Utility functions for running experiments @TODO: do we need this?
+# Utility functions for running experiments
 
 def run_SGD(X, y, w, loss, T=10000, BS=1, lr=0.2, lr_decay=0, weight_decay=0, **precond_args):
     optim = SGD(w, loss, BS=BS, lr=lr, lr_decay=lr_decay)

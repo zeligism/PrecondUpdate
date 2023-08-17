@@ -4,10 +4,8 @@ import torch.optim as optim
 
 
 class ScaledSGD(optim.Optimizer):
-    def __init__(self, params, lr=0.02, beta=0.999, alpha=1e-5, warmup=100,
-                 reg_const=1.0, reg_const_min=1e-5, reg_pow=1.0):
+    def __init__(self, params, lr=0.02, beta=0.999, alpha=1e-5, warmup=100):
         defaults = dict(lr=lr, beta=beta, alpha=alpha)
-        defaults = dict(**defaults, reg_const=reg_const, reg_const_min=reg_const_min, reg_pow=reg_pow)
         super().__init__(params, defaults)
         self.global_state.setdefault('t', 0)  # num of step iters
         self.global_state.setdefault('warmup', warmup)  # num of diagonal warmup iters
@@ -37,35 +35,27 @@ class ScaledSGD(optim.Optimizer):
                 gz_sum += (p.grad * z).sum()
                 self.state[p]['z'] = z
                 gradnorm_sq += torch.sum(p.grad**2).item()
-            group['alpha'] = group['reg_const'] * gradnorm_sq**(0.5 * group['reg_const'])
         gz_sum.backward()
 
         with torch.no_grad():
             for group in self.param_groups:
-                beta = group['beta']
-                alpha = group['alpha']
-                if beta == "avg":
-                    beta = 1 - 1 / (t + warmup)
+                beta = 1 - 1 / (t + warmup) if group['beta'] in ("avg", "auto") else group['beta']
                 for p in group['params']:
+                    pstate = self.state[p]
                     if p.grad is None:
                         continue
-                    if 'D' not in self.state[p]:
-                        self.state[p]['D'] = 0.
-                    # D = z * p.grad = z * d(df(w)/dw z)/dw = z * d^2f(w)/d^2w z = z * H z
-                    D = self.state[p]['z'] * p.grad
-                    self.state[p]['z'] = None
+                    # Hutchinson: D = z * p.grad = z * d(df(w)/dw z)/dw = z * d^2f(w)/d^2w z = z * H z
+                    D = pstate['z'].mul(p.grad)
+                    pstate['z'] = None
+                    # update diagonal
                     if init_phase:
-                        self.state[p]['D'] += D / warmup
-                        # TODO: is this necessary?
-                        if warmup == t - 1:
-                            D = self.state[p]['D'].abs()
-                            D[D < alpha] = alpha
-                            self.state[p]['D'] = D
+                        if 'D' not in pstate:
+                            pstate['D'] = D.div(warmup)
+                        else:
+                            pstate['D'].add_(D.div(warmup))
                     else:
-                        D_prev = self.state[p]['D']
-                        D = (beta * D_prev + (1 - beta) * D).abs()
-                        D[D < alpha] = alpha
-                        self.state[p]['D'] = D
+                        pstate['D'] = pstate['D'].mul(beta).add(D.mul(1 - beta))
+                    p.grad = None
 
     @torch.no_grad()
     def step(self, closure):
@@ -94,23 +84,14 @@ class ScaledSGD(optim.Optimizer):
         loss = closure()
         # Reset params and update grads
         for group in self.param_groups:
-            gradnorm_sq = 0.
-            dot = 0.
             for p in group['params']:
-                if 'prev' in self.state[p]:
-                    dot += (p.grad * (self.state[p]['prev'] - p)).sum().item()
-                    gradnorm_sq += (p.grad * p.grad).sum().item()
                 self.state[p]['prev'] = p.detach().clone()
                 # precondition grad and take a step
                 if 'D' in self.state[p]:
-                    p.grad.mul_(self.state[p]['D']**-1)
+                    p.grad.div_(self.state[p]['D'])
                 p.sub_(p.grad, alpha=group['lr'])
                 p.grad.detach_()
                 p.grad.zero_()
-            if 4 * group['alpha'] * dot >= gradnorm_sq:
-                group['reg_const'] = max(0.25 * group['reg_const'], group['reg_const_min'])
-            else:
-                group['reg_const'] = 4 * group['reg_const']
 
         self.global_state['t'] += 1
         return loss
@@ -215,10 +196,6 @@ class ScaledSVRG(ScaledSGD):
                 p.grad.zero_()
                 self.state[p]['orig'] = None
                 self.state[p]['orig_grad'] = None
-            if 4 * group['alpha'] * dot >= gradnorm_sq:
-                group['reg_const'] = max(0.25 * group['reg_const'], group['reg_const_min'])
-            else:
-                group['reg_const'] = 4 * group['reg_const']
 
             gradnorm += gradnorm_sq
         gradnorm = gradnorm**0.5

@@ -7,24 +7,22 @@ from itertools import product
 from random import random, shuffle
 from train import *
 
-# @TODO: put this in yaml or something
+
 DRY_RUN = False  # for testing
 LOG_DIR = "logs_torch"
 HP_DICT = {
-    "epochs": (15,),
+    "epochs": (25,),
     "seed": range(10),
-    "loss": ("cross_entropy",),
-    "corrupt": (None,),
     "dataset": ("mnist",),
-    "optimizer": ("Adam", "L-SVRG"),
+    "optimizer": ("Adam", "SARAH", "L-SVRG"),
     "batch_size": (128,),
     "p": (0.999,),
     "lr": (2**-4, 2**-6, 2**-8, 2**-10, 2**-12, 2**-14),
     "precond": ("hutchinson",),
     "warmup": (100,),
-    # "beta1": (0.0, 0.9),  # TODO: should we also test with momentum?
+    "beta1": (0.0, 0.9),
     "beta2": ("avg", 0.999, 0.99),
-    "alpha": ("super", 1e-1, 1e-3, 1e-7),
+    "alpha": (1e-1, 1e-3, 1e-7),
 }
 
 HP_GRID = product(*HP_DICT.values())
@@ -38,29 +36,10 @@ def main():
     time.sleep(3 * random())
 
     # Create log dirs on start up
-    if not os.path.isdir(LOG_DIR):
-        os.mkdir(LOG_DIR)
-    # Create folders for each dataset and for each corrupted version
     dataset_paths = {}
-    exp_settings = product(HP_DICT["loss"], HP_DICT["dataset"], HP_DICT["corrupt"])
-    for loss, dataset, corrupt in exp_settings:
-        if corrupt is None:
-            dataset_folder = dataset
-        else:
-            dataset_folder = f"{dataset}({corrupt[0]},{corrupt[1]})"
-        # log/loss/dataset/etc...
-        loss_path = os.path.join(LOG_DIR, loss)
-        dataset_path = os.path.join(loss_path, dataset_folder)
-        if not os.path.isdir(loss_path):
-            os.mkdir(loss_path)
-        if not os.path.isdir(dataset_path):
-            os.mkdir(dataset_path)
-        # Add to paths
-        if loss not in dataset_paths:
-            dataset_paths[loss] = {}
-        if dataset not in dataset_paths[loss]:
-            dataset_paths[loss][dataset] = {}
-        dataset_paths[loss][dataset][corrupt] = dataset_path
+    for dataset in HP_DICT["dataset"]:
+        dataset_paths[dataset] = os.path.join(LOG_DIR, dataset)
+        os.makedirs(dataset_paths[dataset], exist_ok=True)
 
     for hyperparams in HP_GRID:
         hp = dict(zip(HP_DICT.keys(), hyperparams))
@@ -81,10 +60,7 @@ def main():
 
         if hp['optimizer'] == "Adam":
             hp['precond'] = None
-            hp['beta1'] = 0.9
             hp['alpha'] = 1e-8
-        else:
-            hp['beta1'] = 0.0  # TODO: should we also test with momentum?
 
         if hp['beta2'] == "avg" and hp['precond'] != "hutchinson":
             continue
@@ -104,7 +80,7 @@ def main():
 
         if hp['precond'] == "hutchinson":
             args_str += f",precond={hp['precond']}"
-            # args_str += f",beta1={hp['beta1']}"  TODO: should we also test with momentum?
+            args_str += f",beta1={hp['beta1']}"
             args_str += f",beta2={hp['beta2']}"
             args_str += f",alpha={hp['alpha']}"
             if 'warmup' in hp:
@@ -114,8 +90,8 @@ def main():
             args_str += f",beta1={hp['beta1']}"
             args_str += f",beta2={hp['beta2']}"
 
-        # log file is {LOG_DIR}/loss/dataset[(k_min,k_max)]/optimizer(arg1=val1,...,argN=valN).pkl
-        dataset_path = dataset_paths[hp['loss']][hp['dataset']][hp['corrupt']]
+        # log file is {LOG_DIR}/dataset/optimizer(arg1=val1,...,argN=valN).pkl
+        dataset_path = dataset_paths[hp['dataset']]
         logfile = os.path.join(dataset_path, f"{hp['optimizer']}({args_str}).pkl")
 
         # Skip if another job already started on this
@@ -126,11 +102,11 @@ def main():
             pickle.dump([], f)
 
         # Create arg namespace to pass to train
-        # XXX: Do this in a better way
-        del hp['loss']
-        del hp['corrupt']
-        hp['cuda'] = True
-        args = parse_args(namespace=Namespace(savedata=logfile, **hp))
+        args_dict = hp
+        args_dict['cuda'] = True
+        del args_dict['loss']
+        del args_dict['corrupt']
+        args = parse_args(namespace=Namespace(savedata=logfile, **args_dict))
 
         # Run
         if not DRY_RUN:

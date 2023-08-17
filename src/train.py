@@ -16,7 +16,7 @@ from plot import *
 mem = Memory("./mycache")
 DATASET_DIR = "datasets"
 DATASETS = ("a1a", "a9a", "rcv1", "covtype", "real-sim", "w8a", "ijcnn1", "news20",)
-# @TODO: allow case-insensitive arg for optimizer, but keep canonical name
+# @TODO: allow case-insensitive arg for optimizer, but keep canonical capitalization
 OPTIMIZERS = ("SGD", "SARAH", "PAGE", "OASIS", "SVRG", "L-SVRG", "LSVRG", "Adam", "Adagrad", "Adadelta")
 # OPTIMIZERS = ("sgd", "sarah", "page", "oasis", "svrg", "l-svrg", "lsvrg", "adam", "adagrad", "adadelta")
 LOSSES = ("logistic", "nllsq")
@@ -59,7 +59,7 @@ def parse_args(namespace=None):
                         help="Momentum of gradient first moment.")
     parser.add_argument("--beta2", "--beta", "--rho", dest="beta2", default=0.999,
                         help="Momentum of gradient second moment.")
-    parser.add_argument("--alpha", "--eps", default=1e-7,
+    parser.add_argument("--alpha", "--eps", default=1e-7, type=float,
                         help="Equivalent to 'eps' in Adam (e.g. see pytorch docs).")
     parser.add_argument("--precond_warmup", type=int, default=100,
                         help="Num of samples for initializing diagonal in hutchinson's method.")
@@ -121,7 +121,7 @@ def train(args):
         print(f"Scaling features from 10^{args.corrupt[0]} to 10^{args.corrupt[1]}.")
         X = corrupt_scale(X, args.corrupt[0], args.corrupt[1])
 
-    # Init weights  @TODO: add other initalizations?
+    # Init weights
     print("Initializing weights to 0.")
     w = np.zeros(X.shape[1])
 
@@ -150,8 +150,9 @@ def train(args):
     print(f"Learning rate = {args.lr}")
     print(f"Batch size = {args.BS}")
     if args.optimizer in ("LSVRG", "L-SVRG"):
-        args.p = 1 - 1 / loss.num_data**0.5 if args.p == 'auto' else float(args.p)
+        args.p = 1 - 1 / (loss.num_data / args.BS) if args.p == 'auto' else float(args.p)
         print(f"p = {args.p}")
+
     print(f"Running {args.optimizer} for {args.T} epochs...")
     start_time = time.time()
     if args.optimizer == "SGD":

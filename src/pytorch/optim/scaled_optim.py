@@ -6,7 +6,6 @@ from .vr import *
 
 class ScaledOptimizer(optim.Optimizer):
     def init_precond(self, warmup=100, beta=0.999, alpha=1e-5):
-        # TODO: just set all as global state
         for group in self.param_groups:
             group.setdefault('beta', beta)
             group.setdefault('alpha', alpha)
@@ -27,7 +26,7 @@ class ScaledOptimizer(optim.Optimizer):
         p0 = self.param_groups[0]['params'][0]
         return self.state[p0]
 
-    @torch.enable_grad()
+    @torch.no_grad()
     def update_diagonal(self, init_phase=False):
         """
         Updates diagonal based on Hutchinson trace estimation.
@@ -36,56 +35,36 @@ class ScaledOptimizer(optim.Optimizer):
         t = self.global_state['t']
         warmup = self.global_state['warmup']
 
-        gz_sum = 0.  # hessian-vector product
-        for group in self.param_groups:
-            gradnorm = 0.
-            for p in group['params']:
-                pstate = self.state[p]
-                if p.grad is None:
-                    continue
-                # z = 2 * torch.randint_like(p.grad, 2) - 1
-                # gz_sum += (p.grad * z).sum()
-                # pstate['z'] = z
-                # gradnorm += torch.sum(p.grad**2).item()
-                c = 0.0  # TODO: add momentum?
-                if 'grad_avg' not in pstate:
-                    pstate['grad_avg'] = p.grad.detach()
-                grad = c * pstate['grad_avg'] + (1 - c) * p.grad
-                z = 2 * torch.randint_like(grad, 2) - 1
-                gz_sum += (grad * z).sum()
-                pstate['z'] = z
-                gradnorm += torch.sum(grad**2).item()
-                pstate['grad_avg'] = grad.detach()
-            gradnorm = gradnorm**0.5
-        gz_sum.backward()
-
-        with torch.no_grad():
+        with torch.enable_grad():
+            gz_sum = 0.  # hessian-vector product
             for group in self.param_groups:
-                alpha = group['alpha']
-                beta = 1 - 1 / (t + warmup) if group['beta'] in ("avg", "auto") else group['beta']
                 for p in group['params']:
                     pstate = self.state[p]
                     if p.grad is None:
                         continue
-                    # Hutchinson: D = z * p.grad = z * d(df(w)/dw z)/dw = z * d^2f(w)/d^2w z = z * H z
-                    D = pstate['z'] * p.grad
-                    pstate['z'] = None
-                    # update diagonal
-                    if init_phase:
-                        if 'D' not in pstate:
-                            pstate['D'] = 0.
-                        pstate['D'] += D / warmup
-                        # TODO: is this necessary?
-                        if t - 1 == warmup:
-                            D = pstate['D'].abs()
-                            D[D < alpha] = alpha
-                            pstate['D'] = D
+                    z = 2 * torch.randint_like(p.grad, 2) - 1
+                    gz_sum += (p.grad * z).sum()
+                    pstate['z'] = z.clone().detach()
+            gz_sum.backward()
+
+        for group in self.param_groups:
+            beta = 1 - 1 / (t + warmup) if group['beta'] in ("avg", "auto") else group['beta']
+            for p in group['params']:
+                pstate = self.state[p]
+                if p.grad is None:
+                    continue
+                # Hutchinson: D = z * p.grad = z * d(df(w)/dw z)/dw = z * d^2f(w)/d^2w z = z * H z
+                D = pstate['z'].mul(p.grad)
+                pstate['z'] = None
+                # update diagonal
+                if init_phase:
+                    if 'D' not in pstate:
+                        pstate['D'] = D.div(warmup)
                     else:
-                        D_prev = pstate['D']
-                        D = (beta * D_prev + (1 - beta) * D).abs()
-                        D[D < alpha] = alpha
-                        pstate['D'] = D
-                    p.grad = None
+                        pstate['D'].add_(D.div(warmup))
+                else:
+                    pstate['D'] = pstate['D'].mul(beta).add(D.mul(1 - beta))
+                p.grad = None
 
     @torch.no_grad()
     def step(self, closure):
@@ -121,20 +100,14 @@ class ScaledOptimizer(optim.Optimizer):
 
         # Get the step and reapply it with preconditioning
         for group in self.param_groups:
-            gradnorm_sq = 0.
-            dot = 0.
+            alpha = group['alpha']
             for p in group['params']:
-                pstate = self.state[p]
-                delta = pstate['orig'] - p
-                # for checking backtracking condition
-                if 'prev_delta' in pstate:
-                    grad = delta / group['lr']  # the effective grad
-                    dot += torch.sum(grad * pstate['prev_delta']).item()
-                    gradnorm_sq += torch.sum(grad**2).item()
                 # precondition step
-                pstate['prev_delta'] = delta.detach().clone()
                 if 'D' in self.state[p]:
-                    p.copy_(pstate['orig'] - delta / pstate['D'])
+                    pstate = self.state[p]
+                    delta = pstate['orig'].sub(p)
+                    D = pstate['D'].abs().clamp(min=alpha)
+                    p.copy_(pstate['orig'].addcdiv(delta, D, value=-1))
 
         self.global_state['t'] += 1
         return loss

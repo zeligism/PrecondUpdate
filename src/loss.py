@@ -20,8 +20,7 @@ class LogisticLoss:
         self.y = y
         self.num_data = X.shape[0]
         self.dim = X.shape[1]
-        # @TODO: divide by N?
-        self.weight_decay = weight_decay / self.num_data
+        self.weight_decay = weight_decay
 
     def __call__(self, w, i=None):
         self.func(w, i)
