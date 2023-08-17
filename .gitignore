@@ -9,3 +9,5 @@ logs*/
 __pycache__/
 _old/
 plot*.pdf
+logs*
+logs*/
