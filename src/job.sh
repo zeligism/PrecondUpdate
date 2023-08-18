@@ -2,7 +2,9 @@
 #SBATCH --job-name=scaledvr
 #SBATCH --output="%x-%j.out"
 #SBATCH --cpus-per-task=1
-#SBATCH --ntasks=128
-##SBATCH --time=02:00:00
+#SBATCH --ntasks=512
+#SBATCH -q cpu-512
+#SBATCH -p cpu
+#SBATCH --time=12:00:00
 srun python src/run_experiment.py
 

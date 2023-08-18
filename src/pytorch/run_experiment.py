@@ -5,14 +5,14 @@ import time
 from argparse import Namespace
 from itertools import product
 from random import random, shuffle
-from pytorch.train import *
+from train import *
 
 
 DRY_RUN = False  # for testing
 LOG_DIR = "logs_torch"
 HP_DICT = {
     "epochs": (25,),
-    "seed": range(10),
+    "seed": range(3),
     "dataset": ("mnist", "cifar-10"),
     "optimizer": ("Adam", "L-SVRG", "SARAH"),
     "batch_size": (128,),
@@ -102,11 +102,8 @@ def main():
             pickle.dump([], f)
 
         # Create arg namespace to pass to train
-        args_dict = hp
-        args_dict['cuda'] = True
-        del args_dict['loss']
-        del args_dict['corrupt']
-        args = parse_args(namespace=Namespace(savedata=logfile, **args_dict))
+        hp['cuda'] = True
+        args = parse_args(namespace=Namespace(savedata=logfile, **hp))
 
         # Run
         if not DRY_RUN:
