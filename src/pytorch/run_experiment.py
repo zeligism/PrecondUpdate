@@ -46,7 +46,11 @@ def main():
 
         ### Hard settings ###
         if hp['optimizer'] in ("Adam", "Adagrad", "Adadelta"):
-            hp['epochs'] *= 2
+            hp['precond'] = None
+            hp['alpha'] = 1e-8
+
+        if hp['precond'] is None and hp['optimizer'] not in ("SVRG", "L-SVRG", "SARAH"):
+            hp['T'] *= 2  # i.e. Adam and vanilla SGD
 
         if 'lr_decay' not in hp:
             hp['lr_decay'] = 0
@@ -57,10 +61,6 @@ def main():
         # weight_decay only used for logistic loss
         if hp['weight_decay'] != 0 and hp["loss"] != "logistic":
             continue
-
-        if hp['optimizer'] == "Adam":
-            hp['precond'] = None
-            hp['alpha'] = 1e-8
 
         if hp['beta2'] == "avg" and hp['precond'] != "hutchinson":
             continue

@@ -26,6 +26,7 @@ if EXP == 1:
         "weight_decay": (0.0,),
         "precond": ("none", "hutchinson",),
         "precond_warmup": (100,),
+        "beta1": (0.0, 0.9),
         "beta2": ("avg", 0.999, 0.995, 0.99, 0.95),
         "alpha": (1e-1, 1e-3, 1e-7),
     }
@@ -85,7 +86,11 @@ def main():
 
         ### Hard settings ###
         if hp['optimizer'] in ("Adam", "Adagrad", "Adadelta"):
-            hp['T'] *= 2  # because they are not scaled
+            hp['precond'] = None
+            hp['alpha'] = 1e-8
+
+        if hp['precond'] is None and hp['optimizer'] not in ("SVRG", "L-SVRG", "SARAH"):
+            hp['T'] *= 2  # i.e. Adam and vanilla SGD
 
         if 'lr_decay' not in hp:
             hp['lr_decay'] = 0
@@ -96,12 +101,6 @@ def main():
         # weight_decay only used for logistic loss
         if hp['weight_decay'] != 0 and hp["loss"] != "logistic":
             continue
-
-        if hp['optimizer'] == "Adam":
-            hp['precond'] = None
-            # hp['beta1'] = 0.9  # XXX
-            hp['beta1'] = 0.0
-            hp['alpha'] = 1e-8
 
         if hp['beta2'] == "avg" and hp['precond'] != "hutchinson":
             continue
