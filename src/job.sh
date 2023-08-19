@@ -6,5 +6,6 @@
 #SBATCH -q cpu-512
 #SBATCH -p cpu
 #SBATCH --time=12:00:00
+source activate torch
 srun python src/run_experiment.py
 

@@ -8,4 +8,5 @@
 #SBATCH -q gpu-single
 #SBATCH --gres=gpu:1
 #SBATCH --time=12:00:00
+source activate torch
 srun python src/pytorch/run_experiment.py
