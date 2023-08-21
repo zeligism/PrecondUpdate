@@ -50,7 +50,7 @@ def main():
             hp['alpha'] = 1e-8
 
         if hp['precond'] is None and hp['optimizer'] not in ("SVRG", "L-SVRG", "SARAH"):
-            hp['T'] *= 2  # i.e. Adam and vanilla SGD
+            hp['epochs'] *= 2  # i.e. Adam and vanilla SGD
 
         if 'lr_decay' not in hp:
             hp['lr_decay'] = 0
