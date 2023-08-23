@@ -10,6 +10,12 @@ class SVRG(torch.optim.SGD):
         self.global_state.setdefault('should_ref', True)  # we should update reference next step
         self.global_state.setdefault('ref_period', period)  # period of updating reference (in `t`)
 
+    @property
+    def global_state(self):
+        # First param holds global state
+        p0 = self.param_groups[0]['params'][0]
+        return self.state[p0]
+
     @torch.no_grad()
     def update_ref(self):
         """
