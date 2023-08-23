@@ -86,10 +86,10 @@ def main():
 
         ### Hard settings ###
         if hp['optimizer'] in ("Adam", "Adagrad", "Adadelta"):
-            hp['precond'] = None
+            hp['precond'] = "none"
             hp['alpha'] = 1e-8
 
-        if hp['precond'] is None and hp['optimizer'] not in ("SVRG", "L-SVRG", "SARAH"):
+        if hp['precond'] == "none" and hp['optimizer'] not in ("SVRG", "L-SVRG", "SARAH"):
             hp['T'] *= 2  # i.e. Adam and vanilla SGD
 
         if 'lr_decay' not in hp:
