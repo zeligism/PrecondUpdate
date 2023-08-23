@@ -25,15 +25,14 @@ class Args:
     # The following should be the same as the one used in run_experiment.py
     DATASETS = ["mnist", "cifar-10"]
     OPTIMIZERS = ["SARAH", "L-SVRG", "Adam"]
-    MAX_EPOCHS = 50  # Use 2xT used in run_experiment.py
-    MAX_TIME = 1000  # in seconds
+    MAX_IDX = {"ep": 50, "time": 1000}
     # These are the metrics collected in the data logs
     METRICS = ["loss", "gradnorm", "error"]
     # These are aggregators for comparing multi-seed runs
     AGGS = ["mean", "median"]
     # These are the logs columns: effective passes + metrics + walltime
     LOG_COLS = ["ep", "loss", "gradnorm", "error", "time"]
-    ITER_INDICES = ["ep", "time"]  # indices that can be counted as iteration indices
+    TIME_INDICES = ["ep", "time"]  # indices that can be counted as iteration indices
     DATA_INDICES = [0, 1, 2, 3, 5]  # indices corresponding to chosen cols in logs
     # These are the hyperparameters of interest
     ARG_COLS = ["lr", "alpha", "beta2", "precond"]
@@ -50,14 +49,14 @@ class Args:
 
     def __init__(self, log_dir, plot_dir,
                  idx = "ep",
-                 loss = "logistic",
+                 loss = "cross_entropy",
                  metric = "error",
                  agg = "mean",
-                 avg_downsample = 3,
+                 avg_downsample = 5,
                  filter_args = {},
                  remove_empty_file = False,
                  ) -> None:
-        self.base_dir = log_dir
+        self.log_dir = log_dir
         self.plots_dir = plot_dir
         # Choose loss, metric, and aggregation method
         self.idx = idx
@@ -68,7 +67,6 @@ class Args:
         self.filter_args = filter_args  # see above
         self.remove_empty_file = remove_empty_file  # force remove log files that are empty
         # Update and make dirs
-        self.log_dir = os.path.join(self.base_dir, self.loss)
         os.makedirs(self.plots_dir, exist_ok=True)
         # Experiment identifier
         self.as_dict = dict(idx=self.idx, loss=self.loss, metric=self.metric, **self.filter_args)
@@ -79,13 +77,19 @@ class Args:
         return f"Args({self.experiment_repr})"
 
 
-if __name__ == "__main__":
+def main():
     for idx, loss, metric, *filter_values \
-            in product(Args.ITER_INDICES, Args.LOSSES, Args.METRICS, *Args.FILTER_LIST.values()):
+            in product(Args.TIME_INDICES, Args.LOSSES, Args.METRICS, *Args.FILTER_LIST.values()):
+        if not (idx == "time" and metric == "loss"):
+            continue
         filter_args = dict(zip(Args.FILTER_LIST.keys(), filter_values))
         kwargs = dict(log_dir=LOG_DIR, plot_dir=PLOT_DIR,
                       idx=idx, loss=loss, metric=metric, filter_args=filter_args)
         # Assign arguments
         args = Args(**kwargs)
-        print(f"Running main with args: {args}")
-        main(args)
+        print(f"Generating plots with args: {args}")
+        generate_plots(args, precond=False, fixed_args=False)
+
+
+if __name__ == "__main__":
+    main()

@@ -18,7 +18,7 @@ HP_DICT = {
     "batch_size": (128,),
     "p": (0.999,),
     "lr": (2**-4, 2**-6, 2**-8, 2**-10, 2**-12, 2**-14),
-    "precond": ("hutchinson",),
+    "precond": ("none", "hutchinson"),
     "warmup": (100,),
     "beta1": (0.0, 0.9),
     "beta2": ("avg", 0.999, 0.99),
@@ -46,10 +46,10 @@ def main():
 
         ### Hard settings ###
         if hp['optimizer'] in ("Adam", "Adagrad", "Adadelta"):
-            hp['precond'] = None
+            hp['precond'] = "none"
             hp['alpha'] = 1e-8
 
-        if hp['precond'] is None and hp['optimizer'] not in ("SVRG", "L-SVRG", "SARAH"):
+        if hp['precond'] == "none" and hp['optimizer'] not in ("SVRG", "L-SVRG", "SARAH"):
             hp['epochs'] *= 2  # i.e. Adam and vanilla SGD
 
         if 'lr_decay' not in hp:

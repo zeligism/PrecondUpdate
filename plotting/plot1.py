@@ -59,9 +59,9 @@ class Args:
     # List of available filter args per col
     # Logs will be filtered for these settings when applicable (USE EXACT STRING VALUE AS IN FILENAME).
     FILTER_LIST = {
-        # "corrupt": ["none", "(0,3)", "(-3,0)", "(-3,3)"],
+        "corrupt": ["none", "(0,3)", "(-3,0)", "(-3,3)"],
+        # "corrupt": ["none"],
         # "beta1": ["0.0", "0.9"],
-        "corrupt": ["none"],
         "beta1": ["0.9"],
     }
     # Ignore all runs containing 'any' of these hyperparams.
@@ -168,7 +168,7 @@ def handle_empty_file(args, fname):
             print ("Error: %s - %s." % (e.filename, e.strerror))
 
 
-def get_logs(logdir, dataset, optimizer, **filter_args):
+def get_logs(args, logdir, dataset, optimizer, **filter_args):
     """
     Return all logs in 'logdir' containing the filter hyperparams.
     Dataset name should contain feature scaling, if any
@@ -177,11 +177,7 @@ def get_logs(logdir, dataset, optimizer, **filter_args):
     Returns the data in the log file and its arguments/hyperparams.
     """
     if "corrupt" in filter_args and filter_args['corrupt'] != "none":
-        # Add scale suffix to specify dataset    
-        dataset += filter_args['corrupt']
-    # else:
-    #     # No setting specified, use wildcard to match all suffixes  XXX: get only none
-    #     dataset += "*"
+        dataset += filter_args['corrupt']  # add scale suffix
 
     # Find all files matching this pattern
     for fname in glob.glob(f"{logdir}/{dataset}/{optimizer}(*).pkl"):
@@ -190,6 +186,8 @@ def get_logs(logdir, dataset, optimizer, **filter_args):
         if not contain_dict(exp_args, filter_args):
             continue
         data = loaddata(fname)
+        time_idx = args.DATA_INDICES[args.LOG_COLS.index(args.idx)]
+        data[:, time_idx] -= min(data[:, time_idx])  # double check that time_idx starts at 0
         if len(data) == 0:
             handle_empty_file(args, fname)
             continue
@@ -199,7 +197,8 @@ def get_logs(logdir, dataset, optimizer, **filter_args):
 
 def downsample_dataframe(args, df):
     # Downsample by averaging metrics every 'avg_downsample' epoch.
-    df[args.idx] = np.ceil(df[args.idx] / args.avg_downsample) * args.avg_downsample
+    eff_downsample = len(df[args.idx]) * args.avg_downsample / 100
+    df[args.idx] = np.ceil(df[args.idx] / eff_downsample) * eff_downsample
     df = df.groupby([args.idx] + args.ARG_COLS).mean().reset_index()
     return df
 
@@ -212,7 +211,7 @@ def create_experiments_dataframe(args):
         dataset, optimizer = experiment
         exp_dfs = []
         # Get all log data given the experiment and filter args
-        for data, args_dict in get_logs(args.log_dir, dataset, optimizer, **args.filter_args):
+        for data, args_dict in get_logs(args, args.log_dir, dataset, optimizer, **args.filter_args):
             if ignore(args, args_dict):
                 continue
             # Get experiment log data
@@ -235,9 +234,14 @@ def create_experiments_dataframe(args):
     for experiment in product(args.DATASETS, args.OPTIMIZERS):
         dataset, _ = experiment
         df = all_dfs[experiment]
-        precond_idx = df[df["precond"] == "hutchinson"][args.idx]
-        noprecond_idx = df[df["precond"] == "none"][args.idx]
-        min_last_idx[dataset] = min(min_last_idx[dataset], precond_idx.max(), noprecond_idx.max())
+        if "precond" in df.columns:
+            precond_last_idx = 10**10
+            noprecond_last_idx = 10**10
+            if len(df[df["precond"] == "hutchinson"]) > 0:
+                precond_last_idx = df[df["precond"] == "hutchinson"][args.idx].max()
+            if len(df[df["precond"] == "none"]) > 0:
+                noprecond_last_idx = df[df["precond"] == "none"][args.idx].max()
+        min_last_idx[dataset] = min(min_last_idx[dataset], precond_last_idx, noprecond_last_idx)
     print(min_last_idx)
     for experiment in product(args.DATASETS, args.OPTIMIZERS):
         dataset, _ = experiment
@@ -383,7 +387,7 @@ def plot_best_perfs_given_fixed_arg(args, best_dfs_fixed_args):
     modes = set(best_dfs_fixed_args.keys()) - set(["precond"])  # exclude precond
     for y in ("error", "gradnorm"):
         for mode in modes:
-            valid_optimizers = [opt for opt in args.OPTIMIZERS if not (mode == "alpha" and opt == "Adam")]
+            valid_optimizers = set(args.OPTIMIZERS) - set(["Adam"])
             # Plot data for all optim, datasets, and args
             start_time = time.time()
             fig, axes = plt.subplots(len(valid_optimizers), len(args.DATASETS))
@@ -413,6 +417,7 @@ def plot_best_perfs_given_fixed_arg(args, best_dfs_fixed_args):
                         exp_df = exp_df.sort_values("beta2", ascending=True)  # nums first, to be consistent with Adam
                         sns.lineplot(ax=axes[i,j], x=args.idx, y=y,
                                     hue="beta2", size="lr", size_norm=LogNorm(), style="alpha", data=exp_df)
+                        print(exp_df)
 
                     elif mode == "alpha":
                         exp_df = exp_df.sort_values("alpha", ascending=True)  # none is blue, etc.
@@ -432,22 +437,31 @@ def plot_best_perfs_given_fixed_arg(args, best_dfs_fixed_args):
             print(f"Took about {time.time() - start_time:.2f} seconds to create this plot.")
 
 
-def main(args):
+def generate_plots(args, precond=False, fixed_args=False):
     # Create experiment dataframe and find best hyperparams based on given metric
     all_dfs = create_experiments_dataframe(args)
     best_dfs, best_dfs_fixed_args = find_all_best_hyperparams(args, all_dfs)
     plot_best_perfs(args, best_dfs)
-    plot_best_perfs_given_precond(args, best_dfs_fixed_args)
-    # plot_best_perfs_given_fixed_arg(args, best_dfs_fixed_args)
+    if precond:
+        plot_best_perfs_given_precond(args, best_dfs_fixed_args)
+    if fixed_args:
+        plot_best_perfs_given_fixed_arg(args, best_dfs_fixed_args)
 
 
-if __name__ == "__main__":
+def main():
     for idx, loss, metric, *filter_values \
             in product(Args.TIME_INDICES, Args.LOSSES, Args.METRICS, *Args.FILTER_LIST.values()):
+        if not (idx == "time" and loss == "logistic" and metric == "loss"):
+            continue
         filter_args = dict(zip(Args.FILTER_LIST.keys(), filter_values))
         kwargs = dict(log_dir=LOG_DIR, plot_dir=PLOT_DIR,
                       idx=idx, loss=loss, metric=metric, filter_args=filter_args)
         # Assign arguments
         args = Args(**kwargs)
-        print(f"Running main with args: {args}")
-        main(args)
+        print(f"Generating plots with args: {args}")
+        generate_plots(args, precond=True, fixed_args=False)
+
+
+
+if __name__ == "__main__":
+    main()
