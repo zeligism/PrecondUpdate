@@ -9,6 +9,7 @@ class SVRG(torch.optim.SGD):
         self.global_state.setdefault('ref_evals', 0)  # num of reference updates
         self.global_state.setdefault('should_ref', True)  # we should update reference next step
         self.global_state.setdefault('ref_period', period)  # period of updating reference (in `t`)
+        self.global_state.setdefault('t', 0)  # num of step iters
 
     @property
     def global_state(self):
