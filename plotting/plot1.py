@@ -197,7 +197,7 @@ def get_logs(args, logdir, dataset, optimizer, **filter_args):
 
 def downsample_dataframe(args, df):
     # Downsample by averaging metrics every 'avg_downsample' epoch.
-    eff_downsample = round(len(df[args.idx]) * args.avg_downsample / 100)
+    eff_downsample = len(df[args.idx]) * args.avg_downsample / 100
     df[args.idx] = np.ceil(df[args.idx] / eff_downsample) * eff_downsample
     df = df.groupby([args.idx] + args.ARG_COLS).mean().reset_index()
     return df

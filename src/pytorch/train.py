@@ -37,13 +37,9 @@ def parse_args(namespace=None):
                         help='Random seed for model.')
     parser.add_argument("--dataset", type=str, choices=DATASETS, default="a1a",
                         help="Name of dataset (in 'datasets' directory)")
-    parser.add_argument("-w", "--num_workers", type=int, default=0,
+    parser.add_argument("-w", "--num-workers", type=int, default=0,
                         help="Num of data loading workers.")
     parser.add_argument("--cuda", "--gpu", action="store_true", help="Use cuda.")
-    # parser.add_argument("--corrupt", nargs="*", type=int, default=None,
-    #                     help="Corrupt scale features in dataset."
-    #                     "First two args = (k_min, k_max) = range of scaling in powers."
-    #                     "If one arg is given, range will be (-k,k).")
     parser.add_argument("--savefig", type=str, default=None,
                         help="Save plots under this name (default: don't save).")
     parser.add_argument("--savedata", type=str, default=None,
@@ -76,10 +72,11 @@ def parse_args(namespace=None):
                         help="Equivalent to 'eps' in Adam (e.g. see pytorch docs).")
     parser.add_argument("--warmup", type=int, default=100,
                         help="Num of samples for initializing diagonal in hutchinson's method.")
-    # parser.add_argument("--precond_resample", action="store_true",
-    #                     help="Resample batch in hutchinson's method.")
-    # parser.add_argument("--precond_zsamples", type=int, default=1,
-    #                     help="Num of rademacher samples in hutchinson's method.")
+    parser.add_argument("--zsamples", type=int, default=1,
+                        help="Num of rademacher samples in hutchinson's method.")
+
+    parser.add_argument("--test-freq", type=float, default=0.25,
+                        help="Testing frequency or ratio per epoch.")
 
     # Parse command line args
     args = parser.parse_args(namespace=namespace)
@@ -360,7 +357,8 @@ def init_optim(params, args):
         if args.precond == "hutchinson":
             optimizer = ScaledSGD(params, lr=args.lr,
                                   momentum=args.beta1, weight_decay=args.weight_decay,
-                                  beta=args.beta2, alpha=args.alpha, warmup=args.warmup)
+                                  beta=args.beta2, alpha=args.alpha,
+                                  warmup=args.warmup, zsamples=args.zsamples)
         else:
             optimizer = optim.SGD(params, lr=args.lr,
                                   momentum=args.beta1, weight_decay=args.weight_decay)
@@ -368,7 +366,8 @@ def init_optim(params, args):
         if args.precond == "hutchinson":
             optimizer = ScaledSVRG(params, lr=args.lr, period=args.period,
                                    momentum=args.beta1, weight_decay=args.weight_decay,
-                                   beta=args.beta2, alpha=args.alpha, warmup=args.warmup)
+                                   beta=args.beta2, alpha=args.alpha,
+                                   warmup=args.warmup, zsamples=args.zsamples)
         else:
             optimizer = SVRG(params, lr=args.lr, period=args.period,
                              momentum=args.beta1, weight_decay=args.weight_decay)
@@ -376,7 +375,8 @@ def init_optim(params, args):
         if args.precond == "hutchinson":
             optimizer = ScaledSARAH(params, lr=args.lr, period=args.period,
                                     momentum=args.beta1, weight_decay=args.weight_decay,
-                                    beta=args.beta2, alpha=args.alpha, warmup=args.warmup)
+                                    beta=args.beta2, alpha=args.alpha,
+                                    warmup=args.warmup, zsamples=args.zsamples)
         else:
             optimizer = SARAH(params, lr=args.lr, period=args.period,
                               momentum=args.beta1, weight_decay=args.weight_decay)
@@ -384,7 +384,8 @@ def init_optim(params, args):
         if args.precond == "hutchinson":
             optimizer = ScaledLSVRG(params, lr=args.lr, p=args.p,
                                     momentum=args.beta1, weight_decay=args.weight_decay,
-                                    beta=args.beta2, alpha=args.alpha, warmup=args.warmup)
+                                    beta=args.beta2, alpha=args.alpha,
+                                    warmup=args.warmup, zsamples=args.zsamples)
         else:
             optimizer = LSVRG(params, lr=args.lr, p=args.p,
                               momentum=args.beta1, weight_decay=args.weight_decay)
@@ -446,7 +447,9 @@ def run_experiment(args, device):
         model = LeNet5()
         criterion = nn.CrossEntropyLoss()
     elif args.dataset == "cifar-10":
-        model = ResNet9()
+        from resnet_cifar import resnet20
+        model = resnet20()
+        # model = ResNet9()
         criterion = nn.CrossEntropyLoss()
     else:
         raise NotImplementedError(args.dataset)
@@ -475,7 +478,7 @@ def run_experiment(args, device):
     data = []
     for epoch in range(1, args.epochs + 1):
         results = train(model, device, train_loader, test_loader,
-                        optimizer, criterion, epoch)
+                        optimizer, criterion, epoch, test_interval=args.test_freq)
         data += results
 
     return data

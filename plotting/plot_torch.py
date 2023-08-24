@@ -80,7 +80,7 @@ class Args:
 def main():
     for idx, loss, metric, *filter_values \
             in product(Args.TIME_INDICES, Args.LOSSES, Args.METRICS, *Args.FILTER_LIST.values()):
-        if not (idx == "time" and metric == "loss"):
+        if not (idx == "ep" and metric == "loss"):
             continue
         filter_args = dict(zip(Args.FILTER_LIST.keys(), filter_values))
         kwargs = dict(log_dir=LOG_DIR, plot_dir=PLOT_DIR,
