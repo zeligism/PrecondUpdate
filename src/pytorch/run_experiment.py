@@ -8,7 +8,7 @@ from random import random, shuffle
 from train import *
 
 
-DRY_RUN = True  # for testing
+DRY_RUN = False  # for testing
 LOG_DIR = "logs_torch"
 HP_DICT = {
     "epochs": (15,),
