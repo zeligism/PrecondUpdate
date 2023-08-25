@@ -1,4 +1,4 @@
-
+# test: python src/pytorch/train.py -s 0 -BS 128 -T 5 --dataset mnist --optimizer SGD --beta1 0.0 -lr 1e-3 --precond hutchinson --beta2 avg --alpha 1e-3 --warmup 5 --zsamples 10
 import time
 import argparse
 import pickle

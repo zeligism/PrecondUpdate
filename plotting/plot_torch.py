@@ -23,9 +23,10 @@ class Args:
     # Loss function: only cross_entropy is supported
     LOSSES = ["cross_entropy"]
     # The following should be the same as the one used in run_experiment.py
-    DATASETS = ["mnist", "cifar-10"]
-    OPTIMIZERS = ["SARAH", "L-SVRG", "Adam"]
-    MAX_IDX = {"ep": 50, "time": 1000}
+    # DATASETS = ["mnist", "cifar-10"]
+    DATASETS = ["mnist"]
+    OPTIMIZERS = ["SGD", "SARAH", "L-SVRG", "Adam"]
+    MAX_IDX = {"ep": 30, "time": 1000}
     # These are the metrics collected in the data logs
     METRICS = ["loss", "gradnorm", "error"]
     # These are aggregators for comparing multi-seed runs
@@ -39,7 +40,7 @@ class Args:
     # List of available filter args per col
     # Logs will be filtered for these settings when applicable (USE EXACT STRING VALUE AS IN FILENAME).
     FILTER_LIST = {
-        "beta1": ["0.0", "0.9"],
+        # "beta1": ["0.0", "0.9"],
     }
     # Ignore all runs containing 'any' of these hyperparams.
     IGNORE_ARGS = {
@@ -80,7 +81,7 @@ class Args:
 def main():
     for idx, loss, metric, *filter_values \
             in product(Args.TIME_INDICES, Args.LOSSES, Args.METRICS, *Args.FILTER_LIST.values()):
-        if not (idx == "ep" and metric == "loss"):
+        if not (metric == "loss"):
             continue
         filter_args = dict(zip(Args.FILTER_LIST.keys(), filter_values))
         kwargs = dict(log_dir=LOG_DIR, plot_dir=PLOT_DIR,
@@ -88,7 +89,7 @@ def main():
         # Assign arguments
         args = Args(**kwargs)
         print(f"Generating plots with args: {args}")
-        generate_plots(args, precond=False, fixed_args=False)
+        generate_plots(args, precond=True, fixed_args=False)
 
 
 if __name__ == "__main__":

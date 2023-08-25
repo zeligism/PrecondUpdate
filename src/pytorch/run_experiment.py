@@ -17,7 +17,7 @@ HP_DICT = {
     "dataset": ("mnist",),
     "optimizer": ("Adam", "L-SVRG", "SARAH", "SGD"),
     "batch_size": (128,),
-    "p": (0.9995,),
+    "p": (0.999,),
     "lr": (2**-6, 2**-8, 2**-10, 2**-12),
     "precond": ("none", "hutchinson"),
     "warmup": (10,),

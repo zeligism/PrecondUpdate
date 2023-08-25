@@ -5,13 +5,15 @@ from .vr import *
 
 
 class ScaledOptimizer(optim.Optimizer):
-    def init_precond(self, warmup=100, beta=0.999, alpha=1e-5, zsamples=1):
+    def init_precond(self, warmup=100, beta=0.999, alpha=1e-5, zsamples=1, layer_wise=True, scaled_z=True):
         for group in self.param_groups:
             group.setdefault('beta', beta)
             group.setdefault('alpha', alpha)
         self.global_state.setdefault('zsamples', zsamples)  # num of z samples in update_diagonal
         self.global_state.setdefault('warmup', warmup)  # num of diagonal warmup iters
         self.global_state.setdefault('t', 0)  # num of step iters
+        self.global_state.setdefault('layer_wise', layer_wise)
+        self.global_state.setdefault('scaled_z', scaled_z)
 
     def __setstate__(self, state):
         self.__setstate__(state)
@@ -21,6 +23,8 @@ class ScaledOptimizer(optim.Optimizer):
         self.global_state.setdefault('zsamples', 1)  # num of z samples in update_diagonal
         self.global_state.setdefault('warmup', 1)  # num of diagonal warmup iters
         self.global_state.setdefault('t', 0)  # num of step iters
+        self.global_state.setdefault('layer_wise', True)
+        self.global_state.setdefault('scaled_z', False)
 
     @property
     def global_state(self):
@@ -29,13 +33,15 @@ class ScaledOptimizer(optim.Optimizer):
         return self.state[p0]
 
     @torch.no_grad()
-    def update_diagonal(self, init_phase=False, layer_wise=True):
+    def update_diagonal(self, init_phase=False):
         """
         Updates diagonal based on Hutchinson trace estimation.
         `closure(create_graph=True)` should be called right before calling this method.
         """
         t = self.global_state['t']
         warmup = self.global_state['warmup']
+        layer_wise = self.global_state['layer_wise']
+        scaled_z = self.global_state['scaled_z']
         D_diff = 0.
         D_sum = 0.
 
@@ -49,12 +55,16 @@ class ScaledOptimizer(optim.Optimizer):
                         D = torch.zeros_like(p)
                         for _ in range(zsamples):
                             z = torch.randint_like(p, 2) * 2 - 1
-                            hv, = torch.autograd.grad(p.grad, p, grad_outputs=z, retain_graph=True)
-                            D.add_(z * hv / zsamples)
+                            if scaled_z and 'D' in pstate:
+                                scale = pstate['D'].abs().pow(0.5).add(group['alpha'])
+                            else:
+                                scale = 1
+                            Hz, = torch.autograd.grad(p.grad, p, grad_outputs=z.div(scale), retain_graph=True)
+                            D.add_(z.mul(scale) * Hz / zsamples)
                         if 'D_t' in pstate:
                             D_diff += torch.norm(pstate['D_t'] - D)**2
                         pstate['D_t'] = D
-        
+
         # ---------- Full model implementation ---------- #
         else:
             with torch.enable_grad():

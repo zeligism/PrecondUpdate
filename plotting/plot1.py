@@ -197,7 +197,7 @@ def get_logs(args, logdir, dataset, optimizer, **filter_args):
 
 def downsample_dataframe(args, df):
     # Downsample by averaging metrics every 'avg_downsample' epoch.
-    eff_downsample = len(df[args.idx]) * args.avg_downsample / 100
+    eff_downsample = round((df[args.idx].max() - df[args.idx].min()) * args.avg_downsample / 100)
     df[args.idx] = np.ceil(df[args.idx] / eff_downsample) * eff_downsample
     df = df.groupby([args.idx] + args.ARG_COLS).mean().reset_index()
     return df
@@ -311,30 +311,31 @@ def plot_best_perfs(args, best_dfs):
     fig.set_size_inches(ASPECT * HEIGHT * len(args.DATASETS), HEIGHT * num_rows)
     plt.suptitle(rf"Best performances on {args.loss} loss")
     for j, dataset in enumerate(args.DATASETS):
-        for optimizer in args.OPTIMIZERS:
-            exp = (dataset, optimizer)
-            if exp not in best_dfs:
-                continue
-            # Get hyperparams of best performance of 'optimizer' on 'dataset'
-            args_dict = {k:v for k,v in zip(best_dfs[exp].index.names, best_dfs[exp].index[0])}
-            exp_df = best_dfs[exp].reset_index()
-            # Show power of lr as 2^lr_pow
-            lr_pow = round(log2(float(args_dict['lr'])))
-            if optimizer == "Adam":
-                sublabel = rf"$\eta = 2^{{{lr_pow}}}$, $\beta_1={args.filter_args['beta1']}$, $\beta_2={0.999}$"  # XXX: hardcoded
-            else:
-                sublabel = rf"$\eta = 2^{{{lr_pow}}}$, $\alpha={args_dict['alpha']}$, $\beta={args_dict['beta2']}$"
-            label = rf"{optimizer}({sublabel})"
-            print(f"Plotting lines for {exp}...")
-            for i, metric in enumerate(args.METRICS):
-                sns.lineplot(x=args.idx, y=metric, label=label, ax=axes[i,j], data=exp_df)
         for i, metric in enumerate(args.METRICS):
+            ax = axes[i] if len(args.DATASETS) == 1 else axes[i,j]
+            for optimizer in args.OPTIMIZERS:
+                exp = (dataset, optimizer)
+                if exp not in best_dfs:
+                    continue
+                # Get hyperparams of best performance of 'optimizer' on 'dataset'
+                args_dict = {k:v for k,v in zip(best_dfs[exp].index.names, best_dfs[exp].index[0])}
+                exp_df = best_dfs[exp].reset_index()
+                # Show power of lr as 2^lr_pow
+                lr_pow = round(log2(float(args_dict['lr'])))
+                if optimizer == "Adam":
+                    beta1 = 0.9 if 'beta1' not in args.filter_args else args.filter_args['beta1']
+                    sublabel = rf"$\eta = 2^{{{lr_pow}}}$, $\beta_1={beta1}$, $\beta_2={0.999}$"  # XXX: hardcoded
+                else:
+                    sublabel = rf"$\eta = 2^{{{lr_pow}}}$, $\alpha={args_dict['alpha']}$, $\beta={args_dict['beta2']}$"
+                label = rf"{optimizer}({sublabel})"
+                print(f"Plotting lines for {exp}...")
+                sns.lineplot(x=args.idx, y=metric, label=label, ax=ax, data=exp_df)
             if LOG_SCALE[metric]:
-                axes[i,j].set(yscale="log")
-            axes[i,j].set_title(dataset)
-            axes[i,j].set_ylabel(rf"{TO_MATH[metric]}")
-            axes[i,j].set_xlabel(rf"{TO_MATH[args.idx]}")
-            axes[i,j].legend()
+                ax.set(yscale="log")
+            ax.set_title(dataset)
+            ax.set_ylabel(rf"{TO_MATH[metric]}")
+            ax.set_xlabel(rf"{TO_MATH[args.idx]}")
+            ax.legend()
     fig.tight_layout()
 
     # Create a string out of filter args and save figure
@@ -356,8 +357,6 @@ def plot_best_perfs_given_precond(args, best_dfs_fixed_args):
             exp = (dataset, optimizer)
             if exp not in best_dfs_fixed_args["precond"]:
                 continue
-            # Put both dfs together and mark them with the optimizer's name.
-            # (They already have 'precond' set accordingly.)
             exp_df = pd.concat(best_dfs_fixed_args["precond"][exp].values()).reset_index()
             if len(exp_df) == 0:
                 continue
@@ -366,17 +365,18 @@ def plot_best_perfs_given_precond(args, best_dfs_fixed_args):
         # reset index and combine precond with gamma
         print(f"Plotting lines for {dataset}...")
         optim_df = pd.concat(optim_dfs).reset_index()
+        optim_df = optim_df.sort_values("precond", ascending=False)  # none is solid, hutchinson is dashed
+        optim_df = optim_df.sort_values("optimizer", ascending=False)  # SGD, SARAH, L-SVRG, Adam
         for i, metric in enumerate(args.METRICS):
-            sns.lineplot(x=args.idx, y=metric, hue="optimizer", style="precond", ax=axes[i,j], data=optim_df)
-        for i, metric in enumerate(args.METRICS):
+            ax = axes[i] if len(args.DATASETS) == 1 else axes[i,j]
+            sns.lineplot(x=args.idx, y=metric, hue="optimizer", style="precond", ax=ax, data=optim_df)
             if LOG_SCALE[metric]:
-                axes[i,j].set(yscale="log")
-            axes[i,j].set_title(dataset)
-            axes[i,j].set_ylabel(rf"{TO_MATH[metric]}")
-            axes[i,j].set_xlabel(rf"{TO_MATH[args.idx]}")
+                ax.set(yscale="log")
+            ax.set_title(dataset)
+            ax.set_ylabel(rf"{TO_MATH[metric]}")
+            ax.set_xlabel(rf"{TO_MATH[args.idx]}")
             # axes[i,j].legend()
     fig.tight_layout()
-    
     plt.savefig(f"{args.plots_dir}/perf_given_precond({args.experiment_str}).pdf")
     plt.close()
     print(f"Took about {time.time() - start_time:.2f} seconds to create this plot.")
@@ -396,6 +396,10 @@ def plot_best_perfs_given_fixed_arg(args, best_dfs_fixed_args):
             plt.suptitle(title)
             for i, optimizer in enumerate(valid_optimizers):
                 for j, dataset in enumerate(args.DATASETS):
+                    if len(args.DATASETS) == 1 or len(args.OPTIMIZERS) == 1:
+                        ax = axes[i+j]
+                    else:
+                        ax = axes[i,j]
                     exp = (dataset, optimizer)
                     if exp not in best_dfs_fixed_args[mode] or len(best_dfs_fixed_args[mode][exp]) == 0:
                         continue
@@ -408,27 +412,27 @@ def plot_best_perfs_given_fixed_arg(args, best_dfs_fixed_args):
                     if mode == "lr":
                         exp_df = exp_df.sort_values("alpha", ascending=False)  # none is thinest
                         exp_df = exp_df.sort_values("beta2", ascending=False)  # none is solid, avg is dashed, etc.
-                        sns.lineplot(ax=axes[i,j], x=args.idx, y=y,
+                        sns.lineplot(ax=ax, x=args.idx, y=y,
                                     hue="lr", hue_norm=LogNorm(), palette="vlag",
                                     size="alpha", style="beta2", data=exp_df)
 
                     elif mode == "beta":
                         exp_df = exp_df.sort_values("alpha", ascending=True)  # none is blue, etc.
                         exp_df = exp_df.sort_values("beta2", ascending=True)  # nums first, to be consistent with Adam
-                        sns.lineplot(ax=axes[i,j], x=args.idx, y=y,
+                        sns.lineplot(ax=ax, x=args.idx, y=y,
                                     hue="beta2", size="lr", size_norm=LogNorm(), style="alpha", data=exp_df)
                         print(exp_df)
 
                     elif mode == "alpha":
                         exp_df = exp_df.sort_values("alpha", ascending=True)  # none is blue, etc.
                         exp_df = exp_df.sort_values("beta2", ascending=False)  # none is solid, avg is dashed, etc.
-                        sns.lineplot(ax=axes[i,j], x=args.idx, y=y,
+                        sns.lineplot(ax=ax, x=args.idx, y=y,
                                     hue="alpha", size="lr", size_norm=LogNorm(), style="beta2", data=exp_df)
 
-                    axes[i,j].set(yscale="log")
-                    axes[i,j].set_title(rf"$\tt {optimizer}({dataset})$")
-                    axes[i,j].set_ylabel(rf"{TO_MATH[y]}")
-                    axes[i,j].set_xlabel(rf"{TO_MATH[args.idx]}")
+                    ax.set(yscale="log")
+                    ax.set_title(rf"$\tt {optimizer}({dataset})$")
+                    ax.set_ylabel(rf"{TO_MATH[y]}")
+                    ax.set_xlabel(rf"{TO_MATH[args.idx]}")
             fig.tight_layout()
 
             # Create a string out of filter args and save figure
