@@ -186,6 +186,8 @@ def get_logs(args, logdir, dataset, optimizer, **filter_args):
         if not contain_dict(exp_args, filter_args):
             continue
         data = loaddata(fname)
+        if len(data) == 0:
+            continue
         time_idx = args.DATA_INDICES[args.LOG_COLS.index(args.idx)]
         data[:, time_idx] -= min(data[:, time_idx])  # double check that time_idx starts at 0
         if len(data) == 0:
@@ -197,9 +199,13 @@ def get_logs(args, logdir, dataset, optimizer, **filter_args):
 
 def downsample_dataframe(args, df):
     # Downsample by averaging metrics every 'avg_downsample' epoch.
-    eff_downsample = round((df[args.idx].max() - df[args.idx].min()) * args.avg_downsample / 100)
-    df[args.idx] = np.ceil(df[args.idx] / eff_downsample) * eff_downsample
-    df = df.groupby([args.idx] + args.ARG_COLS).mean().reset_index()
+    if args.avg_downsample < 1:
+        time_range = df[args.idx].max() - df[args.idx].min()
+        effective_downsample = round(time_range * args.avg_downsample)
+    else:
+        effective_downsample = args.avg_downsample
+    df[args.idx] = np.ceil(df[args.idx] / effective_downsample) * effective_downsample
+    # df = df.groupby([args.idx] + args.ARG_COLS).mean().reset_index()
     return df
 
 
@@ -251,7 +257,7 @@ def create_experiments_dataframe(args):
     data_gather_time = time.time() - start_time
     print(f"Data frame lengths:")
     for exp, df in all_dfs.items():
-        runs = len(df) // (args.MAX_IDX[args.idx] // args.avg_downsample)
+        runs = len(df) // len(args.idx)
         print(f"{exp} -> {len(df)} data rows -> {runs} runs")
     print(f"Took about {data_gather_time:.2f} seconds to gather all these data.")
 
@@ -365,8 +371,9 @@ def plot_best_perfs_given_precond(args, best_dfs_fixed_args):
         # reset index and combine precond with gamma
         print(f"Plotting lines for {dataset}...")
         optim_df = pd.concat(optim_dfs).reset_index()
-        optim_df = optim_df.sort_values("precond", ascending=False)  # none is solid, hutchinson is dashed
-        optim_df = optim_df.sort_values("optimizer", ascending=False)  # SGD, SARAH, L-SVRG, Adam
+        # SGD, SARAH, L-SVRG, Adam, none is solid, hutchinson is dashed
+        optim_df = optim_df.sort_values(["optimizer", "precond"], ascending=False)
+        # optim_df = optim_df.sort_values("precond", ascending=False)
         for i, metric in enumerate(args.METRICS):
             ax = axes[i] if len(args.DATASETS) == 1 else axes[i,j]
             sns.lineplot(x=args.idx, y=metric, hue="optimizer", style="precond", ax=ax, data=optim_df)
@@ -455,8 +462,6 @@ def generate_plots(args, precond=False, fixed_args=False):
 def main():
     for idx, loss, metric, *filter_values \
             in product(Args.TIME_INDICES, Args.LOSSES, Args.METRICS, *Args.FILTER_LIST.values()):
-        if not (idx == "time" and loss == "logistic" and metric == "loss"):
-            continue
         filter_args = dict(zip(Args.FILTER_LIST.keys(), filter_values))
         kwargs = dict(log_dir=LOG_DIR, plot_dir=PLOT_DIR,
                       idx=idx, loss=loss, metric=metric, filter_args=filter_args)

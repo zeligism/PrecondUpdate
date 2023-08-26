@@ -24,7 +24,7 @@ class ScaledOptimizer(optim.Optimizer):
         self.global_state.setdefault('warmup', 1)  # num of diagonal warmup iters
         self.global_state.setdefault('t', 0)  # num of step iters
         self.global_state.setdefault('layer_wise', True)
-        self.global_state.setdefault('scaled_z', False)
+        self.global_state.setdefault('scaled_z', True)
 
     @property
     def global_state(self):
@@ -55,8 +55,8 @@ class ScaledOptimizer(optim.Optimizer):
                         D = torch.zeros_like(p)
                         for _ in range(zsamples):
                             z = torch.randint_like(p, 2) * 2 - 1
-                            if scaled_z and 'D' in pstate:
-                                scale = pstate['D'].abs().pow(0.5).add(group['alpha'])
+                            if scaled_z:
+                                scale = group['alpha'] if 'D' not in pstate else pstate['D'].abs().pow(0.5).add(group['alpha'])
                             else:
                                 scale = 1
                             Hz, = torch.autograd.grad(p.grad, p, grad_outputs=z.div(scale), retain_graph=True)
@@ -100,11 +100,11 @@ class ScaledOptimizer(optim.Optimizer):
                 # update diagonal
                 if init_phase:
                     if 'D' not in pstate:
-                        pstate['D'] = D.div(warmup)
+                        pstate['D'] = D
                     else:
-                        pstate['D'].add_(D.div(warmup))
+                        pstate['D'].mul_(t).add_(D).div(t+1)
                 else:
-                    pstate['D'] = pstate['D'].mul(beta).add(D.mul(1 - beta))
+                    pstate['D'].mul_(beta).add_(D.mul(1 - beta))
                 D_sum += torch.norm(pstate['D'])**2
                 p.grad = None
 
@@ -148,9 +148,8 @@ class ScaledOptimizer(optim.Optimizer):
                 # precondition step
                 if 'D' in self.state[p]:
                     pstate = self.state[p]
-                    delta = pstate['orig'].sub(p)
                     D = pstate['D'].abs().clamp(min=alpha)
-                    p.copy_(pstate['orig'].addcdiv(delta, D, value=-1))
+                    p.copy_(pstate['orig'].addcdiv(pstate['orig'].sub(p), D, value=-1))
 
         self.global_state['t'] += 1
         return loss

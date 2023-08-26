@@ -16,7 +16,7 @@ from plot1 import *
 
 
 # Data logs root directory and plot directory
-LOG_DIR = "../logs/logs_torch"
+LOG_DIR = "../logs/logs_torch_layerwise=True"
 PLOT_DIR = "plots_torch"
 
 class Args:
@@ -53,7 +53,7 @@ class Args:
                  loss = "cross_entropy",
                  metric = "error",
                  agg = "mean",
-                 avg_downsample = 5,
+                 avg_downsample = 5 / 100,
                  filter_args = {},
                  remove_empty_file = False,
                  ) -> None:
@@ -81,7 +81,7 @@ class Args:
 def main():
     for idx, loss, metric, *filter_values \
             in product(Args.TIME_INDICES, Args.LOSSES, Args.METRICS, *Args.FILTER_LIST.values()):
-        if not (metric == "loss"):
+        if not (metric == "error"):
             continue
         filter_args = dict(zip(Args.FILTER_LIST.keys(), filter_values))
         kwargs = dict(log_dir=LOG_DIR, plot_dir=PLOT_DIR,

@@ -51,12 +51,14 @@ class SVRG(torch.optim.SGD):
 
         ##### Update reference params and full grad #####
         if should_ref:
+            self.global_state['last_ref_t'] = t - 1
             print(f"Updating reference...")
             closure(full_batch=True)
             self.update_ref()
 
         ##### Take step #####
         # First, define a variance-reduction closure that sets p.grad to the variance-reduced grad
+        @torch.no_grad()
         def vr_closure():
             # Gather stochastic grads on orig params
             loss = closure()
@@ -67,8 +69,7 @@ class SVRG(torch.optim.SGD):
                     pstate['orig'] = p.detach().clone()
                     pstate['orig_grad'] = p.grad.detach().clone()
                     # set to ref params
-                    with torch.no_grad():
-                        p.copy_(pstate['ref'])
+                    p.copy_(pstate['ref'])
             # Gather stochastic grads of loss on ref params
             closure()
             gradnorm = 0.
@@ -80,17 +81,30 @@ class SVRG(torch.optim.SGD):
                     full_grad = pstate['full_grad']
                     if orig_grad is None:
                         continue
-                    # set variance-reduced grad
-                    p.grad.copy_(full_grad - ref_grad + orig_grad)
-                    gradnorm += torch.sum(p.grad**2).item()
-                    ### Add this line for SVRG -> SARAH ###
-                    if self.SARAH:
-                        pstate['ref'] = pstate['orig'].detach().clone()
-                        pstate['full_grad'] = p.grad.detach().clone()
+                    vr_reduced_grad = full_grad.sub(ref_grad).add(orig_grad)
+                    # ### Add this line for SVRG -> SARAH ###
+                    # if self.SARAH:
+                    #     if vr_reduced_grad.pow(2).sum() > pstate['full_grad'].pow(2).sum():
+                    #         beta = 1  # beta=0 --> SARAH,  beta=1 --> SVRG
+                    #     else:
+                    #         beta = 0
+                    #     pstate['ref'].mul_(beta).add_(pstate['orig'].mul(1 - beta))
+                    #     pstate['full_grad'].mul_(beta).add_(vr_reduced_grad.mul(1 - beta))
                     # set to back to original params
-                    with torch.no_grad():
-                        p.copy_(pstate['orig'])
+                    p.copy_(pstate['orig'])
+                    p.grad.copy_(vr_reduced_grad)
+                    gradnorm += torch.sum(p.grad**2).item()
             gradnorm = gradnorm**0.5
+
+            if self.SARAH:
+                for group in self.param_groups:
+                    for p in group['params']:
+                        pstate = self.state[p]
+                        beta = 0.0
+                        pstate['ref'].mul_(beta).add_(pstate['orig'].mul(1 - beta))
+                        pstate['full_grad'].mul_(beta).add_(p.grad.mul(1 - beta))
+                self.global_state['ref_gradnorm'] = gradnorm
+
             self.global_state['should_ref'] = gradnorm < 0.1 * self.global_state['ref_gradnorm']
             return loss
 
