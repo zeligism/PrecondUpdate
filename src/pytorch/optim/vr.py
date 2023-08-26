@@ -5,11 +5,11 @@ import torch
 class SVRG(torch.optim.SGD):
     def __init__(self, params, period=10**10, SARAH=False, **kwargs):
         self.SARAH = SARAH  # change SVRG to SARAH
+        self.num_iters = 0
         super().__init__(params, **kwargs)
         self.global_state.setdefault('ref_evals', 0)  # num of reference updates
         self.global_state.setdefault('should_ref', True)  # we should update reference next step
         self.global_state.setdefault('ref_period', period)  # period of updating reference (in `t`)
-        self.global_state.setdefault('t', 0)  # num of step iters
 
     @property
     def global_state(self):
@@ -43,15 +43,14 @@ class SVRG(torch.optim.SGD):
         `closure` should support calculating a variance-reduced (reference) gradient.
         See `self.update_ref` where the reference gradient is the full batch gradient.
         """
-        t = self.global_state['t']
         ref_period = self.global_state['ref_period']
-        should_ref = self.global_state['should_ref'] or (t % ref_period) == 0
+        should_ref = self.global_state['should_ref'] or (self.num_iters % ref_period) == 0
 
         closure = torch.enable_grad()(closure)  # always enable grad for closure
 
         ##### Update reference params and full grad #####
         if should_ref:
-            self.global_state['last_ref_t'] = t - 1
+            self.global_state['last_ref_t'] = self.num_iters - 1
             print(f"Updating reference...")
             closure(full_batch=True)
             self.update_ref()
@@ -70,6 +69,7 @@ class SVRG(torch.optim.SGD):
                     pstate['orig_grad'] = p.grad.detach().clone()
                     # set to ref params
                     p.copy_(pstate['ref'])
+                    p.grad = None
             # Gather stochastic grads of loss on ref params
             closure()
             gradnorm = 0.
@@ -81,27 +81,21 @@ class SVRG(torch.optim.SGD):
                     full_grad = pstate['full_grad']
                     if orig_grad is None:
                         continue
-                    vr_reduced_grad = full_grad.sub(ref_grad).add(orig_grad)
-                    # ### Add this line for SVRG -> SARAH ###
-                    # if self.SARAH:
-                    #     if vr_reduced_grad.pow(2).sum() > pstate['full_grad'].pow(2).sum():
-                    #         beta = 1  # beta=0 --> SARAH,  beta=1 --> SVRG
-                    #     else:
-                    #         beta = 0
-                    #     pstate['ref'].mul_(beta).add_(pstate['orig'].mul(1 - beta))
-                    #     pstate['full_grad'].mul_(beta).add_(vr_reduced_grad.mul(1 - beta))
-                    # set to back to original params
+                    # set back to original params and set grad to variance reduced grad
                     p.copy_(pstate['orig'])
-                    p.grad.copy_(vr_reduced_grad)
-                    gradnorm += torch.sum(p.grad**2).item()
+                    p.grad = full_grad.sub(ref_grad).add(orig_grad)
+                    gradnorm += p.grad.pow(2).sum().item()
             gradnorm = gradnorm**0.5
 
             if self.SARAH:
                 for group in self.param_groups:
                     for p in group['params']:
                         pstate = self.state[p]
-                        beta = 0.0
+                        ### Add this line for SVRG -> SARAH ###
+                        # XXX
+                        beta = 0  # beta=0 --> SARAH,  beta=1 --> SVRG
                         pstate['ref'].mul_(beta).add_(pstate['orig'].mul(1 - beta))
+                        beta = 0  # beta=0 --> SARAH,  beta=1 --> SVRG
                         pstate['full_grad'].mul_(beta).add_(p.grad.mul(1 - beta))
                 self.global_state['ref_gradnorm'] = gradnorm
 
@@ -110,8 +104,8 @@ class SVRG(torch.optim.SGD):
 
         # Take SGD step with the variance-reduction closure
         loss = super().step(vr_closure)
+        self.num_iters += 1
 
-        self.global_state['t'] += 1
         return loss
 
 
