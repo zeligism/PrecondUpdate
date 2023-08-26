@@ -108,7 +108,7 @@ def main():
 
         # Create arg namespace to pass to train
         hp['cuda'] = True
-        hp['num_workers'] = 8
+        hp['num_workers'] = 2
         args = parse_args(namespace=Namespace(savedata=logfile, **hp))
 
         # Run
