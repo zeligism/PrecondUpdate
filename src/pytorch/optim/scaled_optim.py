@@ -42,28 +42,24 @@ class ScaledOptimizer(optim.Optimizer):
         warmup = self.global_state['warmup']
         layer_wise = self.global_state['layer_wise']
         scaled_z = self.global_state['scaled_z']
-        D_diff = 0.
-        D_sum = 0.
 
         # ---------- Layer-wise implementation ---------- #
         if layer_wise:
             zsamples = self.global_state['zsamples'] if init_phase else 1
-            with torch.enable_grad():
-                for group in self.param_groups:
-                    for p in group['params']:
-                        pstate = self.state[p]
-                        D = torch.zeros_like(p)
-                        for _ in range(zsamples):
-                            z = torch.randint_like(p, 2) * 2 - 1
-                            if scaled_z:
-                                scale = group['alpha'] if 'D' not in pstate else pstate['D'].abs().add(group['alpha']).sqrt()
-                            else:
-                                scale = 1
+            for group in self.param_groups:
+                for p in group['params']:
+                    pstate = self.state[p]
+                    D = torch.zeros_like(p)
+                    for _ in range(zsamples):
+                        z = torch.randint_like(p, 2) * 2 - 1
+                        if scaled_z:
+                            scale = group['alpha'] if 'D' not in pstate else pstate['D'].abs().add(group['alpha']).sqrt()
+                        else:
+                            scale = 1
+                        with torch.enable_grad():
                             Hz, = torch.autograd.grad(p.grad, p, grad_outputs=z.div(scale), retain_graph=True)
-                            D.add_(z.mul(scale) * Hz / zsamples)
-                        if 'D_t' in pstate:
-                            D_diff += torch.norm(pstate['D_t'] - D)**2
-                        pstate['D_t'] = D
+                        D.add_(z.mul(scale) * Hz / zsamples)
+                    pstate['D_t'] = D
 
         # ---------- Full model implementation ---------- #
         else:
@@ -105,7 +101,6 @@ class ScaledOptimizer(optim.Optimizer):
                         pstate['D'].mul_(D_iters).add_(D).div(D_iters + 1)
                 else:
                     pstate['D'].mul_(beta).add_(D.mul(1 - beta))
-                D_sum += torch.norm(pstate['D']).pow(2)
                 p.grad = None
 
         self.global_state['D_iters'] += 1

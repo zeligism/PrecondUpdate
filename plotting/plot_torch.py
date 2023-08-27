@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.colors import LogNorm
 
-from plot1 import *
+from plotting import generate_plots
 
 
 # Data logs root directory and plot directory
@@ -81,7 +81,7 @@ class Args:
 def main():
     for idx, loss, metric, *filter_values \
             in product(Args.TIME_INDICES, Args.LOSSES, Args.METRICS, *Args.FILTER_LIST.values()):
-        if not (metric == "error"):
+        if not (metric in ("loss", "error")):
             continue
         filter_args = dict(zip(Args.FILTER_LIST.keys(), filter_values))
         kwargs = dict(log_dir=LOG_DIR, plot_dir=PLOT_DIR,

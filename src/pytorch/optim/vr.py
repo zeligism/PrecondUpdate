@@ -70,7 +70,7 @@ class SVRG(torch.optim.SGD):
                     # set to ref params
                     p.copy_(pstate['ref'])
                     p.grad = None
-            # Gather stochastic grads of loss on ref params
+            # Gather stochastic grads of loss on ref params (on the same batch)
             closure()
             gradnorm = 0.
             for group in self.param_groups:
@@ -83,7 +83,7 @@ class SVRG(torch.optim.SGD):
                         continue
                     # set back to original params and set grad to variance reduced grad
                     p.copy_(pstate['orig'])
-                    p.grad = full_grad.sub(ref_grad).add(orig_grad)
+                    p.grad = full_grad.add(orig_grad).sub(ref_grad)
                     gradnorm += p.grad.pow(2).sum().item()
             gradnorm = gradnorm**0.5
 
@@ -91,13 +91,9 @@ class SVRG(torch.optim.SGD):
                 for group in self.param_groups:
                     for p in group['params']:
                         pstate = self.state[p]
-                        ### Add this line for SVRG -> SARAH ###
-                        # XXX
-                        beta = 0  # beta=0 --> SARAH,  beta=1 --> SVRG
-                        pstate['ref'].mul_(beta).add_(pstate['orig'].mul(1 - beta))
-                        beta = 0  # beta=0 --> SARAH,  beta=1 --> SVRG
-                        pstate['full_grad'].mul_(beta).add_(p.grad.mul(1 - beta))
-                self.global_state['ref_gradnorm'] = gradnorm
+                        svrg = 0  ### svrg=0 --> SARAH / svrg=1 --> SVRG ###
+                        pstate['ref'].mul_(svrg).add_(pstate['orig'].mul(1 - svrg))
+                        pstate['full_grad'].mul_(svrg).add_(p.grad.mul(1 - svrg))
 
             self.global_state['should_ref'] = gradnorm < 0.1 * self.global_state['ref_gradnorm']
             return loss
