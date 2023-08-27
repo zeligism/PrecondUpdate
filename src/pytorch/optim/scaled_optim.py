@@ -53,7 +53,7 @@ class ScaledOptimizer(optim.Optimizer):
                     for _ in range(zsamples):
                         z = torch.randint_like(p, 2) * 2 - 1
                         if scaled_z:
-                            scale = group['alpha'] if 'D' not in pstate else pstate['D'].abs().add(group['alpha']).sqrt()
+                            scale = group['alpha'] if 'D' not in pstate else pstate['D'].abs().sqrt().add(group['alpha'])
                         else:
                             scale = 1
                         with torch.enable_grad():
