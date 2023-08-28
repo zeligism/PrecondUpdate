@@ -16,7 +16,7 @@ from plotting import generate_plots
 
 
 # Data logs root directory and plot directory
-LOG_DIR = "../logs/logs_torch_layerwise=True"
+LOG_DIR = "../logs/logs_torch_layerwise=True_fixedfixed"
 PLOT_DIR = "plots_torch"
 
 class Args:

@@ -83,7 +83,7 @@ class SVRG(torch.optim.SGD):
                         continue
                     # set back to original params and set grad to variance reduced grad
                     p.copy_(pstate['orig'])
-                    p.grad = full_grad.add(orig_grad).sub(ref_grad)
+                    p.grad = full_grad.add(orig_grad.sub(ref_grad))
                     gradnorm += p.grad.pow(2).sum().item()
             gradnorm = gradnorm**0.5
 
@@ -91,7 +91,17 @@ class SVRG(torch.optim.SGD):
                 for group in self.param_groups:
                     for p in group['params']:
                         pstate = self.state[p]
-                        svrg = 0  ### svrg=0 --> SARAH / svrg=1 --> SVRG ###
+                        # SARAH can be unstable, so normalize gradients
+                        if "alpha" in group:
+                            if "base_alpha" not in group:
+                                group["base_alpha"] = group["alpha"]
+                            group["alpha"] = max(group["base_alpha"], 0.5 * gradnorm)
+                        else:
+                            if "base_lr" not in group:
+                                group["base_lr"] = group["lr"]
+                            group["lr"] = min(group["lr"], 0.01 * gradnorm**-1)
+                        ### svrg=0 --> SARAH / svrg=1 --> SVRG ###
+                        svrg = 0
                         pstate['ref'].mul_(svrg).add_(pstate['orig'].mul(1 - svrg))
                         pstate['full_grad'].mul_(svrg).add_(p.grad.mul(1 - svrg))
 

@@ -79,26 +79,27 @@ class ScaledOptimizer(optim.Optimizer):
 
         # Apply scaled update
         for group in self.param_groups:
-            beta = 1 - 1 / (D_iters + warmup) if group['beta'] in ("avg", "auto") else group['beta']
+            beta = 1 - 1 / D_iters if group['beta'] in ("avg", "auto") else group['beta']
             for p in group['params']:
                 pstate = self.state[p]
                 if p.grad is None:
                     continue
                 if layer_wise:
                     D = pstate['D_t']
+                    pstate['D_t'] = None
                 else:
                     # Hutchinson: D = z * p.grad = z * d(df(w)/dw z)/dw = z * d^2f(w)/d^2w z = z * H z
                     D = pstate['z'].mul(p.grad)  # recall D = z o Hz, and p.grad holds Hz
-                    if 'D_t' in pstate:
-                        D_diff += torch.norm(pstate['D_t'] - D).pow(2)
                     pstate['D_t'] = D
                     pstate['z'] = None
+                    pstate['D_t'] = None
                 # update diagonal
                 if init_phase:
                     if 'D' not in pstate:
                         pstate['D'] = D
                     else:
-                        pstate['D'].mul_(D_iters).add_(D).div(D_iters + 1)
+                        beta = 1 - 1 / (D_iters + 1)
+                        pstate['D'].mul_(beta).add_(D.mul(1 - beta))
                 else:
                     pstate['D'].mul_(beta).add_(D.mul(1 - beta))
                 p.grad = None
