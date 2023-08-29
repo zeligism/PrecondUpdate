@@ -9,19 +9,19 @@ from train import *
 
 
 DRY_RUN = False  # for testing
-LOG_DIR = "logs_torch"
+LOG_DIR = "logs_torch_warmup40"
 HP_DICT = {
     "epochs": (15,),
     "seed": range(3),
     # "dataset": ("mnist", "cifar-10"),
     "dataset": ("mnist",),
-    "optimizer": ("Adam", "L-SVRG", "SARAH", "SGD"),
+    "optimizer": ("Adam", "L-SVRG", "SGD"),
     "batch_size": (128,),
     "p": (0.999,),
     "lr": (2**-6, 2**-8, 2**-10, 2**-12),
     "precond": ("none", "hutchinson"),
-    "warmup": (10,),
-    "zsamples": (40,),
+    "warmup": (40,),
+    "zsamples": (10,),
     # "beta1": (0.0, 0.9),
     "beta1": (0.0,),
     "beta2": ("avg", 0.999, 0.99),

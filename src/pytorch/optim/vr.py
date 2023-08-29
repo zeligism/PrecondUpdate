@@ -91,15 +91,15 @@ class SVRG(torch.optim.SGD):
                 for group in self.param_groups:
                     for p in group['params']:
                         pstate = self.state[p]
-                        # SARAH can be unstable, so normalize gradients
-                        if "alpha" in group:
-                            if "base_alpha" not in group:
-                                group["base_alpha"] = group["alpha"]
-                            group["alpha"] = max(group["base_alpha"], 0.5 * gradnorm)
-                        else:
-                            if "base_lr" not in group:
-                                group["base_lr"] = group["lr"]
-                            group["lr"] = min(group["lr"], 0.01 * gradnorm**-1)
+                        # TODO: SARAH can be unstable, so normalize gradients?
+                        # if "alpha" in group:
+                        #     if "base_alpha" not in group:
+                        #         group["base_alpha"] = group["alpha"]
+                        #     group["alpha"] = max(group["base_alpha"], 0.5 * gradnorm)
+                        # else:
+                        #     if "base_lr" not in group:
+                        #         group["base_lr"] = group["lr"]
+                        #     group["lr"] = min(group["lr"], 0.01 * gradnorm**-1)
                         ### svrg=0 --> SARAH / svrg=1 --> SVRG ###
                         svrg = 0
                         pstate['ref'].mul_(svrg).add_(pstate['orig'].mul(1 - svrg))
