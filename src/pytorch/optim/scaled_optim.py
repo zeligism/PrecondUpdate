@@ -79,7 +79,7 @@ class ScaledOptimizer(optim.Optimizer):
 
         # Apply scaled update
         for group in self.param_groups:
-            beta = 1 - 1 / D_iters if group['beta'] in ("avg", "auto") else group['beta']
+            beta = 1 - 1 / (D_iters + 1) if group['beta'] in ("avg", "auto") else group['beta']
             for p in group['params']:
                 pstate = self.state[p]
                 if p.grad is None:
