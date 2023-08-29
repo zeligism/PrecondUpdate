@@ -5,7 +5,7 @@ from .vr import *
 
 
 class ScaledOptimizer(optim.Optimizer):
-    def init_precond(self, warmup=100, beta=0.999, alpha=1e-5, zsamples=1, layer_wise=True, scaled_z=True):
+    def init_precond(self, warmup=100, beta=0.999, alpha=1e-5, zsamples=1, layer_wise=True, scaled_z=False):
         for group in self.param_groups:
             group.setdefault('beta', beta)
             group.setdefault('alpha', alpha)
