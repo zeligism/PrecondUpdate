@@ -20,7 +20,7 @@ HP_DICT = {
     "p": (0.999,),
     "lr": (2**-6, 2**-8, 2**-10, 2**-12),
     "precond": ("none", "hutchinson"),
-    "warmup": (10),
+    "warmup": (10,),
     "zsamples": (40,),
     # "beta1": (0.0, 0.9),
     "beta1": (0.0,),
