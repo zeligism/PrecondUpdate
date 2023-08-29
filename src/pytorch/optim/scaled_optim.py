@@ -24,7 +24,7 @@ class ScaledOptimizer(optim.Optimizer):
         self.global_state.setdefault('warmup', 1)  # num of diagonal warmup iters
         self.global_state.setdefault('D_iters', 0)  # num of diagonal updates
         self.global_state.setdefault('layer_wise', True)
-        self.global_state.setdefault('scaled_z', True)
+        self.global_state.setdefault('scaled_z', False)
 
     @property
     def global_state(self):
