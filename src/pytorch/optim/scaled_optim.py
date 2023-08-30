@@ -5,7 +5,7 @@ from .vr import *
 
 
 class ScaledOptimizer(optim.Optimizer):
-    def init_precond(self, warmup=100, beta=0.999, alpha=1e-5, zsamples=1, layer_wise=True, scaled_z=False):
+    def init_precond(self, warmup=100, beta=0.999, alpha=1e-5, zsamples=1, layer_wise=True, scaled_z=True):
         for group in self.param_groups:
             group.setdefault('beta', beta)
             group.setdefault('alpha', alpha)
@@ -24,7 +24,7 @@ class ScaledOptimizer(optim.Optimizer):
         self.global_state.setdefault('warmup', 1)  # num of diagonal warmup iters
         self.global_state.setdefault('D_iters', 0)  # num of diagonal updates
         self.global_state.setdefault('layer_wise', True)
-        self.global_state.setdefault('scaled_z', False)
+        self.global_state.setdefault('scaled_z', True)
 
     @property
     def global_state(self):

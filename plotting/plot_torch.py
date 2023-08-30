@@ -42,6 +42,7 @@ class Args:
     # Logs will be filtered for these settings when applicable (USE EXACT STRING VALUE AS IN FILENAME).
     FILTER_LIST = {
         # "beta1": ["0.0", "0.9"],
+        "warmup": ["10", "40"],
     }
     # Ignore all runs containing 'any' of these hyperparams.
     IGNORE_ARGS = {
