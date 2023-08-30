@@ -9,7 +9,7 @@ from train import *
 
 
 DRY_RUN = False  # for testing
-LOG_DIR = "logs_torch"
+LOG_DIR = "logs_torch_test"
 HP_DICT = {
     "epochs": (15,),
     "seed": range(3),

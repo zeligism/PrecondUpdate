@@ -2,7 +2,7 @@
 import torch
 import torch.optim as optim
 from .vr import *
-
+TEST = 3  # XXX
 
 class ScaledOptimizer(optim.Optimizer):
     def init_precond(self, warmup=100, beta=0.999, alpha=1e-5, zsamples=1, layer_wise=True, scaled_z=True):
@@ -53,7 +53,24 @@ class ScaledOptimizer(optim.Optimizer):
                     for _ in range(zsamples):
                         z = torch.randint_like(p, 2) * 2 - 1
                         if scaled_z:
-                            scale = 1 if 'D' not in pstate else pstate['D'].abs().sqrt().add(group['alpha'])
+                            beta = 1 - 1 / (D_iters + 1) if group['beta'] in ("avg", "auto") else group['beta']
+                            if "g2" not in pstate:
+                                pstate["g2"] = torch.zeros_like(p)
+                            pstate["g2"].mul_(beta).add_(p.grad.pow(2).mul_(1 - beta))
+
+                            # XXX
+                            alpha = 0.
+                            if TEST == 0:
+                                alpha = group["alpha"]
+                            elif TEST == 1:
+                                alpha = group["alpha"] * (p.grad if "full_grad" not in pstate else pstate["full_grad"]).abs()         # (1)
+                            elif TEST == 2:
+                                alpha = group["alpha"] * p.grad.abs()                # (2)
+                            elif TEST == 3:
+                                alpha = group["alpha"] * p.grad.pow(2).sum().sqrt()  # (3)
+                            alpha += 1e-8
+
+                            scale = 1 if 'D' not in pstate else pstate['D'].abs().clamp(min=alpha).sqrt()
                         else:
                             scale = 1
                         with torch.enable_grad():
@@ -146,6 +163,19 @@ class ScaledOptimizer(optim.Optimizer):
                 # precondition step
                 if 'D' in self.state[p]:
                     pstate = self.state[p]
+
+                    # XXX
+                    alpha = 0.
+                    if TEST == 0:
+                        alpha = group["alpha"]
+                    elif TEST == 1:
+                        alpha = group["alpha"] * (p.grad if "full_grad" not in pstate else pstate["full_grad"]).abs()         # (1)
+                    elif TEST == 2:
+                        alpha = group["alpha"] * p.grad.abs()                # (2)
+                    elif TEST == 3:
+                        alpha = group["alpha"] * p.grad.pow(2).sum().sqrt()  # (3)
+                    alpha += 1e-8
+
                     D = pstate['D'].abs().clamp(min=alpha)
                     p.copy_(pstate['orig'].addcdiv(pstate['orig'].sub(p), D, value=-1))
 
