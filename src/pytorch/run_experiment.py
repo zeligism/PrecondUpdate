@@ -15,7 +15,7 @@ HP_DICT = {
     "seed": range(3),
     # "dataset": ("mnist", "cifar-10"),
     "dataset": ("mnist",),
-    "optimizer": ("Adam", "L-SVRG", "SGD"),
+    "optimizer": ("Adam", "L-SVRG", "SARAH", "SGD"),
     "batch_size": (128,),
     "p": (0.999,),
     "lr": (2**-6, 2**-8, 2**-10, 2**-12),
