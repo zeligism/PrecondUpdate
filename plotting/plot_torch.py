@@ -27,7 +27,7 @@ class Args:
     DATASETS = ["mnist"]
     OPTIMIZERS = ["SGD", "L-SVRG", "Adam"]
     # OPTIMIZERS = ["SGD", "Adam"]
-    MAX_IDX = {"ep": 30, "time": 1000}
+    MAX_IDX = {"ep": 30, "time": 600}
     # These are the metrics collected in the data logs
     METRICS = ["loss", "gradnorm", "error"]
     # These are aggregators for comparing multi-seed runs
@@ -42,7 +42,8 @@ class Args:
     # Logs will be filtered for these settings when applicable (USE EXACT STRING VALUE AS IN FILENAME).
     FILTER_LIST = {
         # "beta1": ["0.0", "0.9"],
-        "warmup": ["10", "40"],
+        # "warmup": ["10", "40"],
+        "warmup": ["40"],
     }
     # Ignore all runs containing 'any' of these hyperparams.
     IGNORE_ARGS = {
@@ -83,7 +84,7 @@ class Args:
 def main():
     for idx, loss, metric, *filter_values \
             in product(Args.TIME_INDICES, Args.LOSSES, Args.METRICS, *Args.FILTER_LIST.values()):
-        if not (metric in ("error",)):
+        if not (metric in ("loss", "error")):
             continue
         filter_args = dict(zip(Args.FILTER_LIST.keys(), filter_values))
         kwargs = dict(log_dir=LOG_DIR, plot_dir=PLOT_DIR,

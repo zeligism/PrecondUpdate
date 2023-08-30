@@ -138,7 +138,7 @@ def downsample_dataframe(args, df):
         time_range = df[args.idx].max() - df[args.idx].min()
         effective_downsample = round(time_range * args.avg_downsample)
     else:
-        effective_downsample = args.avg_downsample
+        effective_downsample = round(args.avg_downsample)
     df[args.idx] = np.ceil(df[args.idx] / effective_downsample) * effective_downsample
     # df = df.groupby([args.idx] + args.ARG_COLS).mean().reset_index()
     return df
@@ -160,8 +160,8 @@ def create_experiments_dataframe(args):
             # Get args of interest
             for col in args.ARG_COLS:
                 df[col] = args_dict[col]
-            df = downsample_dataframe(args, df)
             df = df[df[args.idx] <= args.MAX_IDX[args.idx]]  # cut data up to the prespecified time index
+            df = downsample_dataframe(args, df)
             exp_dfs.append(df)
 
         # Record all runs of exp in a single dataframe
@@ -171,23 +171,23 @@ def create_experiments_dataframe(args):
             continue
 
     # Get min time for each dataset (w and w/o precond) then cut runs up to that point
-    min_last_idx = {dataset: float('inf') for dataset in args.DATASETS}
-    for experiment in product(args.DATASETS, args.OPTIMIZERS):
-        dataset, _ = experiment
-        df = all_dfs[experiment]
-        if "precond" in df.columns:
-            precond_last_idx = 10**10
-            noprecond_last_idx = 10**10
-            if len(df[df["precond"] == "hutchinson"]) > 0:
-                precond_last_idx = df[df["precond"] == "hutchinson"][args.idx].max()
-            if len(df[df["precond"] == "none"]) > 0:
-                noprecond_last_idx = df[df["precond"] == "none"][args.idx].max()
-            min_last_idx[dataset] = min(min_last_idx[dataset], precond_last_idx, noprecond_last_idx)
-    print(min_last_idx)
-    for experiment in product(args.DATASETS, args.OPTIMIZERS):
-        dataset, _ = experiment
-        df = all_dfs[experiment]
-        all_dfs[experiment] = df[df[args.idx] <= min_last_idx[dataset]]
+    # min_last_idx = {dataset: float('inf') for dataset in args.DATASETS}
+    # for experiment in product(args.DATASETS, args.OPTIMIZERS):
+    #     dataset, _ = experiment
+    #     df = all_dfs[experiment]
+    #     if "precond" in df.columns:
+    #         precond_last_idx = 10**10
+    #         noprecond_last_idx = 10**10
+    #         if len(df[df["precond"] == "hutchinson"]) > 0:
+    #             precond_last_idx = df[df["precond"] == "hutchinson"][args.idx].max()
+    #         if len(df[df["precond"] == "none"]) > 0:
+    #             noprecond_last_idx = df[df["precond"] == "none"][args.idx].max()
+    #         min_last_idx[dataset] = min(min_last_idx[dataset], precond_last_idx, noprecond_last_idx)
+    # print(min_last_idx)
+    # for experiment in product(args.DATASETS, args.OPTIMIZERS):
+    #     dataset, _ = experiment
+    #     df = all_dfs[experiment]
+    #     all_dfs[experiment] = df[df[args.idx] <= min_last_idx[dataset]]
 
     data_gather_time = time.time() - start_time
     print(f"Data frame lengths:")
