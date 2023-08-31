@@ -165,16 +165,17 @@ class ScaledOptimizer(optim.Optimizer):
                     pstate = self.state[p]
 
                     # XXX
-                    alpha = 0.
-                    if TEST == 0:
-                        alpha = group["alpha"]
-                    elif TEST == 1:
-                        alpha = group["alpha"] * (p.grad if "full_grad" not in pstate else pstate["full_grad"]).abs()         # (1)
-                    elif TEST == 2:
-                        alpha = group["alpha"] * p.grad.abs()                # (2)
-                    elif TEST == 3:
-                        alpha = group["alpha"] * p.grad.pow(2).sum().sqrt()  # (3)
-                    alpha += 1e-8
+                    # alpha = 0.
+                    # if TEST == 0:
+                    #     alpha = group["alpha"]
+                    # elif TEST == 1:
+                    #     alpha = group["alpha"] * (p.grad if "full_grad" not in pstate else pstate["full_grad"]).abs()         # (1)
+                    # elif TEST == 2:
+                    #     alpha = group["alpha"] * p.grad.abs()                # (2)
+                    # elif TEST == 3:
+                    #     alpha = group["alpha"] * p.grad.pow(2).sum().sqrt()  # (3)
+                    # alpha += 1e-8
+                    alpha = group["alpha"]
 
                     D = pstate['D'].abs().clamp(min=alpha)
                     p.copy_(pstate['orig'].addcdiv(pstate['orig'].sub(p), D, value=-1))

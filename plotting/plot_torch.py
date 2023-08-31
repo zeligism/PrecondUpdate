@@ -25,7 +25,7 @@ class Args:
     # The following should be the same as the one used in run_experiment.py
     # DATASETS = ["mnist", "cifar-10"]
     DATASETS = ["mnist"]
-    OPTIMIZERS = ["SGD", "L-SVRG", "Adam"]
+    OPTIMIZERS = ["SGD", "SARAH", "L-SVRG", "Adam"]
     # OPTIMIZERS = ["SGD", "Adam"]
     MAX_IDX = {"ep": 30, "time": 600}
     # These are the metrics collected in the data logs
