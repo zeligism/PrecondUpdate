@@ -2,7 +2,7 @@
 import torch
 import torch.optim as optim
 from .vr import *
-TEST = 3  # XXX
+
 
 class ScaledOptimizer(optim.Optimizer):
     def init_precond(self, warmup=100, beta=0.999, alpha=1e-5, zsamples=1, layer_wise=True, scaled_z=True):
@@ -38,91 +38,79 @@ class ScaledOptimizer(optim.Optimizer):
         Updates diagonal based on Hutchinson trace estimation.
         `closure(create_graph=True)` should be called right before calling this method.
         """
-        D_iters = self.global_state['D_iters']
-        warmup = self.global_state['warmup']
-        layer_wise = self.global_state['layer_wise']
-        scaled_z = self.global_state['scaled_z']
-
-        # ---------- Layer-wise implementation ---------- #
-        if layer_wise:
-            zsamples = self.global_state['zsamples'] if init_phase else 1
-            for group in self.param_groups:
-                for p in group['params']:
-                    pstate = self.state[p]
-                    D = torch.zeros_like(p)
-                    for _ in range(zsamples):
-                        z = torch.randint_like(p, 2) * 2 - 1
-                        if scaled_z:
-                            beta = 1 - 1 / (D_iters + 1) if group['beta'] in ("avg", "auto") else group['beta']
-                            if "g2" not in pstate:
-                                pstate["g2"] = torch.zeros_like(p)
-                            pstate["g2"].mul_(beta).add_(p.grad.pow(2).mul_(1 - beta))
-
-                            # XXX
-                            alpha = 0.
-                            if TEST == 0:
-                                alpha = group["alpha"]
-                            elif TEST == 1:
-                                alpha = group["alpha"] * (p.grad if "full_grad" not in pstate else pstate["full_grad"]).abs()         # (1)
-                            elif TEST == 2:
-                                alpha = group["alpha"] * p.grad.abs()                # (2)
-                            elif TEST == 3:
-                                alpha = group["alpha"] * p.grad.pow(2).sum().sqrt()  # (3)
-                            alpha += 1e-8
-
-                            scale = 1 if 'D' not in pstate else pstate['D'].abs().clamp(min=alpha).sqrt()
-                        else:
-                            scale = 1
-                        with torch.enable_grad():
-                            Hz, = torch.autograd.grad(p.grad, p, grad_outputs=z.div(scale), retain_graph=True)
-                        D.add_(z.mul(scale) * Hz / zsamples)
-                    pstate['D_t'] = D
-
-        # ---------- Full model implementation ---------- #
+        if self.global_state['layer_wise']:
+            return self.update_diagonal_layerwise(init_phase=init_phase)
         else:
-            with torch.enable_grad():
-                gz_sum = 0.  # its derivative is the hessian-vector product Hz
-                for group in self.param_groups:
-                    for p in group['params']:
-                        pstate = self.state[p]
-                        if p.grad is None:
-                            continue
-                        z = 2 * torch.randint_like(p, 2) - 1
-                        gz_sum += (p.grad * z).sum()
-                        pstate['z'] = z.clone().detach()
-                gz_sum.backward()
+            return self.update_diagonal_fullmodel(init_phase=init_phase)
 
-        # -------------------- #
+    # ---------- Full model implementation ---------- #
+    @torch.no_grad()
+    def update_diagonal_fullmodel(self, init_phase=False):
+        D_iters = self.global_state['D_iters']
 
-        # Apply scaled update
+        gz_sum = 0.  # its derivative is the hessian-vector product Hz
         for group in self.param_groups:
-            beta = 1 - 1 / (D_iters + 1) if group['beta'] in ("avg", "auto") else group['beta']
             for p in group['params']:
                 pstate = self.state[p]
                 if p.grad is None:
                     continue
-                if layer_wise:
-                    D = pstate['D_t']
-                    pstate['D_t'] = None
-                else:
-                    # Hutchinson: D = z * p.grad = z * d(df(w)/dw z)/dw = z * d^2f(w)/d^2w z = z * H z
-                    D = pstate['z'].mul(p.grad)  # recall D = z o Hz, and p.grad holds Hz
-                    pstate['D_t'] = D
-                    pstate['z'] = None
-                    pstate['D_t'] = None
+                z = 2 * torch.randint_like(p, 2) - 1
+                with torch.enable_grad():
+                    gz_sum += (p.grad * z).sum()
+                pstate['z'] = z.clone().detach()
+        with torch.enable_grad():
+            gz_sum.backward()
+
+        # Apply scaled update
+        for group in self.param_groups:
+            use_avg_beta = init_phase or group['beta'] in ("avg", "auto")
+            beta = 1 - 1 / (D_iters + 1) if use_avg_beta else group['beta']
+            for p in group['params']:
+                pstate = self.state[p]
+                if p.grad is None:
+                    continue
+                # Hutchinson: D = z * p.grad = z * d(df(w)/dw z)/dw = z * d^2f(w)/d^2w z = z * H z
+                D = pstate['z'].mul(p.grad)  # recall D = z o Hz, and p.grad holds Hz
+                pstate['z'] = None
                 # update diagonal
-                if init_phase:
-                    if 'D' not in pstate:
-                        pstate['D'] = D
-                    else:
-                        beta = 1 - 1 / (D_iters + 1)
-                        pstate['D'].mul_(beta).add_(D.mul(1 - beta))
-                else:
-                    pstate['D'].mul_(beta).add_(D.mul(1 - beta))
+                if 'D' not in pstate:
+                    pstate['D'] = D
+                pstate['D'].mul_(beta).add_(D.mul(1 - beta))
                 p.grad = None
 
         self.global_state['D_iters'] += 1
 
+    # ---------- Layer-wise implementation ---------- #
+    @torch.no_grad()
+    def update_diagonal_layerwise(self, init_phase=False):
+        D_iters = self.global_state['D_iters']
+        scaled_z = self.global_state['scaled_z']
+        zsamples = self.global_state['zsamples'] if init_phase else 1
+
+        for group in self.param_groups:
+            use_avg_beta = init_phase or group['beta'] in ("avg", "auto")
+            beta = 1 - 1 / (D_iters + 1) if use_avg_beta else group['beta']
+            alpha = group["alpha"]
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                pstate = self.state[p]
+                D = torch.zeros_like(p)
+                for _ in range(zsamples):
+                    z = torch.randn_like(p)  # XXX
+                    scale = 1
+                    if scaled_z and 'D' in pstate:
+                        scale = pstate['D'].abs().clamp(min=alpha).sqrt()
+                    with torch.enable_grad():
+                        Hz, = torch.autograd.grad(p.grad, p, grad_outputs=z.div(scale), retain_graph=True)
+                    D.add_(z.mul(scale) * Hz / zsamples)
+                # update diagonal
+                if 'D' not in pstate:
+                    pstate['D'] = D
+                pstate['D'].mul_(beta).add_(D.mul(1 - beta))
+                p.grad = None
+
+        self.global_state['D_iters'] += 1
 
     @torch.no_grad()
     def step(self, closure):
@@ -163,20 +151,7 @@ class ScaledOptimizer(optim.Optimizer):
                 # precondition step
                 if 'D' in self.state[p]:
                     pstate = self.state[p]
-
-                    # XXX
-                    # alpha = 0.
-                    # if TEST == 0:
-                    #     alpha = group["alpha"]
-                    # elif TEST == 1:
-                    #     alpha = group["alpha"] * (p.grad if "full_grad" not in pstate else pstate["full_grad"]).abs()         # (1)
-                    # elif TEST == 2:
-                    #     alpha = group["alpha"] * p.grad.abs()                # (2)
-                    # elif TEST == 3:
-                    #     alpha = group["alpha"] * p.grad.pow(2).sum().sqrt()  # (3)
-                    # alpha += 1e-8
                     alpha = group["alpha"]
-
                     D = pstate['D'].abs().clamp(min=alpha)
                     p.copy_(pstate['orig'].addcdiv(pstate['orig'].sub(p), D, value=-1))
 
