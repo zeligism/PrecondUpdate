@@ -43,13 +43,13 @@ class SVRG(torch.optim.SGD):
         `closure` should support calculating a variance-reduced (reference) gradient.
         See `self.update_ref` where the reference gradient is the full batch gradient.
         """
-        ref_period = self.global_state['ref_period']
-        should_ref = self.global_state['should_ref'] or (self.num_iters % ref_period) == 0
+        if (self.num_iters % self.global_state['ref_period']) == 0:
+            self.global_state['should_ref'] = True
 
         closure = torch.enable_grad()(closure)  # always enable grad for closure
 
         ##### Update reference params and full grad #####
-        if should_ref:
+        if self.global_state['should_ref']:
             self.global_state['last_ref_t'] = self.num_iters - 1
             print(f"Updating reference...")
             closure(full_batch=True)
@@ -73,6 +73,7 @@ class SVRG(torch.optim.SGD):
             # Gather stochastic grads of loss on ref params (on the same batch)
             closure()
             gradnorm = 0.
+            ref_dist = 0.
             for group in self.param_groups:
                 for p in group['params']:
                     pstate = self.state[p]
@@ -82,9 +83,11 @@ class SVRG(torch.optim.SGD):
                     if orig_grad is None:
                         continue
                     # set back to original params and set grad to variance reduced grad
+                    grad_diff = orig_grad.sub(ref_grad)
                     p.copy_(pstate['orig'])
-                    p.grad = full_grad.add(orig_grad.sub(ref_grad))
+                    p.grad = full_grad.add(grad_diff)
                     gradnorm += p.grad.pow(2).sum().item()
+                    ref_dist += pstate['ref'].sub(pstate['orig']).pow(2).sum()
                     # pstate['orig'] = None
                     # pstate['orig_grad'] = None
             gradnorm = gradnorm**0.5
@@ -98,7 +101,9 @@ class SVRG(torch.optim.SGD):
                         pstate['ref'].mul_(svrg).add_(pstate['orig'].mul(1 - svrg))
                         pstate['full_grad'].mul_(svrg).add_(p.grad.mul(1 - svrg))
 
-            self.global_state['should_ref'] = gradnorm < 0.1 * self.global_state['ref_gradnorm']
+            if gradnorm < 0.1 * self.global_state['ref_gradnorm']:
+                self.global_state['should_ref'] = True
+
             return loss
 
         # Take SGD step with the variance-reduction closure
