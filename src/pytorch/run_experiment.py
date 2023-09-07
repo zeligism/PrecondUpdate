@@ -13,7 +13,8 @@ LOG_DIR = "logs_torch"
 HP_DICT = {
     "epochs": (15,),
     "seed": range(3),
-    "dataset": ("mnist", "cifar-10"),
+    # "dataset": ("mnist", "cifar-10"),
+    "dataset": ("cifar-10",),
     "optimizer": ("Adam", "L-SVRG", "SARAH", "SGD"),
     "batch_size": (128,),
     "p": (0.999,),
@@ -23,7 +24,7 @@ HP_DICT = {
     "zsamples": (10,),
     "beta1": (0.0,),
     "beta2": ("avg", 0.999, 0.99),
-    "alpha": (1e-1, 1e-3),
+    "alpha": (1.,),
 }
 
 HP_GRID = product(*HP_DICT.values())

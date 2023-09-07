@@ -41,7 +41,7 @@ class Args:
         "corrupt": ["none", "(0,3)", "(-3,0)", "(-3,3)"],
         # "corrupt": ["none"],
         # "beta1": ["0.0", "0.9"],
-        "beta1": ["0.9"],
+        "beta1": ["0.0"],
     }
     # Ignore all runs containing 'any' of these hyperparams.
     IGNORE_ARGS = {

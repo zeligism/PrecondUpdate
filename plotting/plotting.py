@@ -123,8 +123,10 @@ def get_logs(args, logdir, dataset, optimizer, **filter_args):
         data = loaddata(fname)
         if len(data) == 0:
             continue
-        time_idx = args.DATA_INDICES[args.LOG_COLS.index(args.idx)]
-        data[:, time_idx] -= min(data[:, time_idx])  # double check that time_idx starts at 0
+        # double check that all time_idxs start at 0
+        for time_idx in args.TIME_INDICES:
+            time_idx_in_data = args.DATA_INDICES[args.LOG_COLS.index(time_idx)]
+            data[:, time_idx_in_data] -= min(data[:, time_idx_in_data])
         if len(data) == 0:
             handle_empty_file(args, fname)
             continue
@@ -216,7 +218,7 @@ def find_all_best_hyperparams(args, all_dfs):
 
     # Find set of possible values for each hp adaptively
     fixed_args = defaultdict(set)
-    for (dataset, optimizer), df in all_dfs.items():
+    for (_, optimizer), df in all_dfs.items():
         if optimizer.startswith("Adam"):
             continue
         for arg_col in args.ARG_COLS:
@@ -228,8 +230,7 @@ def find_all_best_hyperparams(args, all_dfs):
         # Get last metrics/performance (supposed to be epoch-smoothed for better results)
         exp_df = all_dfs[experiment]
         max_ep = exp_df.groupby(args.ARG_COLS, sort=False)[args.idx].transform(max)
-        perf = exp_df[exp_df[args.idx] == max_ep].drop(args.idx, axis=1)
-
+        perf = exp_df[exp_df[args.idx] == max_ep].drop(args.idx, axis=1).fillna(1e10)
         # Get the data associated with the args of the min aggregated metric
         exp_df = exp_df.set_index(args.ARG_COLS)
         best_dfs[experiment] = exp_df.loc[get_best_hyperparams(args, perf)]
@@ -242,14 +243,25 @@ def find_all_best_hyperparams(args, all_dfs):
     return best_dfs, best_dfs_fixed_args
 
 
-def plot_best_perfs(args, best_dfs):
+def create_standard_fig(args):
     plt.rc('legend', fontsize=LEGEND_FONTSIZE, loc=LEGEND_LOC)
-    start_time = time.time()
     # Plot 3 rows each one showing some performance metric,
     # where the columns are the dataset on which the optim is run.
-    num_rows = len(args.METRICS)
-    fig, axes = plt.subplots(num_rows, len(args.DATASETS))
-    fig.set_size_inches(ASPECT * HEIGHT * len(args.DATASETS), HEIGHT * num_rows)
+    if len(args.DATASETS) == 1:
+        num_cols = len(args.METRICS)
+        fig, axes = plt.subplots(1, num_cols)
+        fig.set_size_inches(ASPECT * HEIGHT * num_cols, HEIGHT)
+    else:
+        num_rows = len(args.METRICS)
+        fig, axes = plt.subplots(num_rows, len(args.DATASETS))
+        fig.set_size_inches(ASPECT * HEIGHT * len(args.DATASETS), HEIGHT * num_rows)
+
+    return fig, axes
+
+
+def plot_best_perfs(args, best_dfs):
+    start_time = time.time()
+    fig, axes = create_standard_fig(args)
     plt.suptitle(rf"Best performances on {args.loss} loss")
     for j, dataset in enumerate(args.DATASETS):
         for i, metric in enumerate(args.METRICS):
@@ -286,11 +298,8 @@ def plot_best_perfs(args, best_dfs):
 
 
 def plot_best_perfs_given_precond(args, best_dfs_fixed_args):
-    plt.rc('legend', fontsize=LEGEND_FONTSIZE, loc=LEGEND_LOC)
     start_time = time.time()
-    num_rows = len(args.METRICS)
-    fig, axes = plt.subplots(num_rows, len(args.DATASETS))
-    fig.set_size_inches(ASPECT * HEIGHT * len(args.DATASETS), HEIGHT * num_rows)
+    fig, axes = create_standard_fig(args)
     plt.suptitle(rf"Best performances on {args.loss} loss")
     for j, dataset in enumerate(args.DATASETS):
         optim_dfs = []

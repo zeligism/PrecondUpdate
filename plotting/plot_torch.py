@@ -43,12 +43,11 @@ class Args:
     FILTER_LIST = {
         # "beta1": ["0.0", "0.9"],
         # "warmup": ["10", "40"],
-        "warmup": ["40"],
     }
     # Ignore all runs containing 'any' of these hyperparams.
     IGNORE_ARGS = {
-        "alpha": [1e-11],
-        "weight_decay": [0.1],
+        # "alpha": [1e-11],
+        # "weight_decay": [0.1],
     }
 
     def __init__(self, log_dir, plot_dir,
